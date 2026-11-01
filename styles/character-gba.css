@@ -1,5 +1,5 @@
-/* Shared GBA palette. Party, shop and chat styling stays independent. */
-.feue.character, .feue.sheet.item {
+/* Shared GBA palette for the character, item, party and shop sheets and their dialogs. Chat styling stays independent. */
+.feue.character, .feue.sheet.item, .feue.party, .feue.shop, .feue-gba-dialog {
     --gba-ink: #080f24;
     --gba-navy: #101c3b;
     --gba-panel: #354b88;
@@ -24,7 +24,7 @@
     border-radius: 3px;
 }
 
-.feue.character .window-header, .feue.sheet.item .window-header {
+.feue.character .window-header, .feue.sheet.item .window-header, .feue:is(.party, .shop) .window-header, .feue-gba-dialog .window-header {
     background: #101a32;
     border-bottom: 1px solid #8f956e;
     color: #f2e8bc;
@@ -378,7 +378,21 @@
 .gba-character :is(.support-name, .effect-name) { font-weight: normal; color: #c6ffa6; font-size: 23px; }
 .gba-character .support-affinity { font-size: 18px; color: var(--gba-muted); }
 .gba-character .support-bonus { font-size: 17px; color: var(--gba-blue); }
-.gba-character .support-rank-select { width: 50px; color: #c6ffa6; }
+.gba-character .support-rank-select { width: 100%; color: #c6ffa6; }
+/* Name, affinity, rank, bonus, status, tie choice, remove: fixed columns so rows line up. */
+.gba-character .support-entry { display: grid; grid-template-columns: minmax(0, 1fr) 52px 58px minmax(0, 1.2fr) 104px 42px 16px; grid-template-areas: "name affinity rank bonus status choice remove"; align-items: center; }
+.gba-character .support-name { grid-area: name; }
+.gba-character .support-affinity { grid-area: affinity; }
+.gba-character .support-rank-select { grid-area: rank; }
+.gba-character .support-bonus { grid-area: bonus; }
+.gba-character .support-status { grid-area: status; }
+.gba-character .support-choice { grid-area: choice; }
+.gba-character .support-remove { grid-area: remove; }
+.gba-character .support-entry > * { min-width: 0; }
+.gba-character .support-status { color: var(--gba-muted); }
+.gba-character .support-status.is-deployed { color: var(--gba-blue); }
+.gba-character .support-status.is-active { color: #c6ffa6; }
+.gba-character .support-use { padding: 1px 7px; border: 1px solid #aaa979; background: #233d79; cursor: pointer; }
 .gba-character .effect-duration { font-size: 18px; }
 .gba-character .fatigue-section .section-header { max-height: none; }
 .gba-character .fatigue-display { color: var(--gba-blue); }
@@ -417,7 +431,7 @@
    text use solid glyphs without shadows or synthetic outlines. */
 .feue.character .gba-character :is(button, .item-control, input, select, textarea,
     .sheet-tabs .item, .unit-class-type, .unit-total, .unit-footer,
-    .support-affinity, .support-bonus, .effect-duration, .weapon-mastery-section,
+    .support-affinity, .support-bonus, .support-status, .support-use, .effect-duration, .weapon-mastery-section,
     .personal-trait-row label, .alt-class-type) {
     font-family: var(--gba-font-readable);
     font-size: 14px;
@@ -456,6 +470,7 @@
     .gba-character .unit-details-grid { grid-template-columns: 1fr; gap: 0; }
 }
 @container feue-character (max-width: 620px) {
+    .gba-character .support-entry { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 58px 16px; grid-template-areas: "name name rank remove" "affinity bonus bonus bonus" "status status choice choice"; }
     .feue.character form.gba-character { grid-template-columns: 145px minmax(0, 1fr); padding: 6px; gap: 0 7px; }
     .gba-character .unit-sidebar { padding-inline: 5px; }
     .gba-character .unit-portrait-frame { height: 152px; }
@@ -609,6 +624,8 @@
     text-align: left;
 }
 .feue.sheet.item .gba-item .form-row > .form-group { flex-basis: 70px; }
+/* A short input beside a taller field (Range next to Uses) keeps its own height. */
+.feue.sheet.item .gba-item .form-group > :is(input, select) { flex: 0 0 auto; }
 .feue.sheet.item .gba-item :is(label, legend) {
     color: var(--gba-gold);
     font: 20px/1.2 var(--feue-font-body);
@@ -686,7 +703,7 @@
 }
 .feue.sheet.item .gba-item hr { border: 0; border-top: 1px solid #b4c3df66; margin: 14px 0; }
 .feue.sheet.item .gba-item .item-activation { margin: 12px 0; padding: 10px; border: 1px solid #99accf; border-radius: 0; }
-.feue.sheet.item .gba-item .item-activation .hint { color: #fff; font: 13px/1.45 "Trebuchet MS", sans-serif; text-shadow: none; }
+.feue.sheet.item .gba-item .hint { color: #fff; font: 13px/1.45 "Trebuchet MS", sans-serif; text-shadow: none; }
 .feue.sheet.item .gba-item .weapon-props-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 12px; margin: 8px 0; }
 .feue.sheet.item .gba-item .weapon-props-grid label { white-space: normal; }
 .feue.sheet.item .gba-item .weapon-slayer-types { margin: 8px 0; padding: 8px; background: #15284c80; border: 1px solid #879bc3; border-radius: 0; }
@@ -732,3 +749,273 @@
 .gba-character .feue-revival-bonus { padding: 2px 4px; border-left: 3px solid transparent; }
 .gba-character .feue-revival-bonus.active { border-left-color: #c6ffa6; background: #20356555; }
 .gba-character .feue-revival-bonuses .section-header { justify-content: space-between; }
+
+/* Party and Shop: the item sheet's frames, a fixed header and a scrolling body of panels. */
+.feue.sheet.actor:is(.party, .shop) .window-content {
+    container: feue-roster / inline-size;
+    overflow: hidden;
+    padding: 0;
+    background: #17274e;
+}
+.feue.sheet.actor form.gba-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    padding: 10px;
+    overflow: hidden;
+    color: var(--feue-text);
+    background: repeating-linear-gradient(0deg, #ffffff03 0 1px, transparent 1px 3px),
+        linear-gradient(125deg, #314d7d, #172449 65%);
+    font: 18px/1.25 var(--feue-font-body);
+    text-shadow: 1px 1px 0 var(--gba-ink);
+    color-scheme: dark;
+}
+.gba-sheet *, .gba-sheet *::before, .gba-sheet *::after { box-sizing: border-box; }
+.feue.sheet.actor .gba-sheet :is(h1, h2, h3, h4) {
+    margin: 0;
+    border: 0;
+    color: var(--gba-gold);
+    font-family: var(--feue-font-body);
+    font-weight: normal;
+    letter-spacing: 0;
+    text-shadow: 1px 1px 0 var(--gba-ink);
+}
+.feue.sheet.actor .gba-sheet :is(input, select, textarea) {
+    min-width: 0;
+    height: 32px;
+    padding: 4px 7px;
+    border: 1px solid #99accf;
+    border-radius: 0;
+    background: #12234a;
+    color: var(--gba-blue);
+    font: 14px/1.4 var(--gba-font-readable);
+    text-shadow: none;
+    box-shadow: inset 1px 1px 0 #080f24;
+}
+.feue.sheet.actor .gba-sheet input[type="number"] { font-size: 16px; font-variant-numeric: tabular-nums; text-align: center; }
+.feue.sheet.actor .gba-sheet :is(input, select):disabled { opacity: 1; color: var(--gba-muted); }
+.feue.sheet.actor .gba-sheet :is(input, textarea)::placeholder { color: #b4c3df; opacity: 1; }
+.feue.sheet.actor .gba-sheet textarea { width: 100%; height: auto; min-height: 110px; resize: vertical; color: #f8f9ff; line-height: 1.5; }
+.feue.sheet.actor .gba-sheet :is(button, .gba-button) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 30px;
+    margin: 0;
+    padding: 4px 10px;
+    border: 1px solid #aaa979;
+    border-radius: 0;
+    background: #233d79;
+    box-shadow: inset 1px 1px 0 #6b80b5, 1px 1px 0 #111c42;
+    color: var(--gba-gold);
+    font: 17px/1.1 var(--feue-font-body);
+    text-shadow: 1px 1px 0 var(--gba-ink);
+    white-space: nowrap;
+    cursor: pointer;
+}
+.feue.sheet.actor .gba-sheet :is(button, .gba-button):hover:not(:disabled) { background: #536daf; color: #fff8cf; }
+.feue.sheet.actor .gba-sheet button:disabled { opacity: .45; cursor: default; box-shadow: none; }
+.feue.sheet.actor .gba-sheet .gba-icon-button { width: 30px; padding: 0; }
+.feue.sheet.actor .gba-sheet .gba-danger { color: #ffd4b4; }
+.feue.sheet.actor .gba-sheet i { font-size: 13px; }
+.feue.sheet.actor .gba-sheet :is(a, button, input, select, textarea):focus-visible { outline: 2px solid var(--gba-gold); outline-offset: 2px; box-shadow: none; }
+.feue.sheet.actor .gba-sheet :is(.gba-hint, .gba-empty) {
+    margin: 4px 0;
+    color: var(--gba-muted);
+    font: 13px/1.45 var(--gba-font-readable);
+    text-shadow: none;
+}
+.feue.sheet.actor .gba-sheet .gba-drop-hint { margin: 0 0 8px; padding: 6px 10px; border: 1px dashed #99accf; background: #15284c80; }
+.feue.sheet.actor .gba-sheet .gba-empty { padding: 12px; text-align: center; font-style: italic; }
+
+.feue.sheet.actor .gba-sheet .gba-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    border: 3px solid var(--gba-cream);
+    background: var(--gba-panel-background);
+    box-shadow: var(--gba-panel-shadow);
+}
+.feue.sheet.actor .gba-sheet .gba-portrait {
+    flex: 0 0 76px;
+    width: 76px;
+    height: 76px;
+    border: 2px solid #b8b689;
+    box-shadow: 0 0 0 1px #101c3b;
+    background: radial-gradient(ellipse at 50% 20%, #adb6a2, #788885 58%, #52626d);
+    object-fit: cover;
+    cursor: pointer;
+}
+.feue.sheet.actor .gba-sheet .gba-header-fields { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.feue.sheet.actor .gba-sheet .gba-kind { color: var(--gba-muted); font-size: 17px; }
+.feue.sheet.actor .gba-sheet .gba-name { width: 100%; line-height: 1; }
+.feue.sheet.actor .gba-sheet .gba-name input {
+    width: 100%;
+    height: 37px;
+    padding: 2px 7px;
+    border: 1px solid #dfcf94;
+    background: #f2e8bc;
+    color: #101c3b;
+    font: 27px/1 var(--feue-font-body);
+    box-shadow: inset 1px 1px #fff9de;
+}
+.feue.sheet.actor .gba-sheet .gba-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+.feue.sheet.actor .gba-sheet .gba-stat { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.feue.sheet.actor .gba-sheet .gba-stat :is(span, label) { color: var(--gba-gold); font: 19px/1.2 var(--feue-font-body); }
+.feue.sheet.actor .gba-sheet .gba-stat b { color: var(--feue-text); font-size: 22px; font-weight: normal; }
+.feue.sheet.actor .gba-sheet .gba-stat input[type="number"] { width: 88px; height: 30px; }
+.feue.sheet.actor .gba-sheet .gba-stat .gba-hint { margin: 0; }
+.feue.sheet.actor .gba-sheet .gba-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 8px; }
+.feue.sheet.actor .gba-sheet .gba-actions button { flex: 1 1 180px; }
+
+.feue.sheet.actor .gba-sheet .sheet-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1px 5px 5px 1px;
+    background: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: #c6c397 #17254d;
+}
+.feue.sheet.actor .gba-sheet .gba-panel {
+    flex: 0 0 auto;
+    padding: 10px 12px 12px;
+    border: 3px solid var(--gba-cream);
+    border-radius: 2px;
+    background: var(--gba-panel-background);
+    box-shadow: var(--gba-panel-shadow);
+}
+.feue.sheet.actor .gba-sheet .gba-panel-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #b4c3df66;
+}
+.feue.sheet.actor .gba-sheet .gba-panel-heading h3 { font-size: 23px; }
+.feue.sheet.actor .gba-sheet .gba-panel-heading h3 :is(small, label) { color: inherit; font: inherit; }
+.feue.sheet.actor .gba-sheet .gba-panel-heading h3 small { color: var(--gba-muted); font-size: 17px; }
+.feue.sheet.actor .gba-sheet .gba-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.feue.sheet.actor .gba-sheet .gba-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid #879bc3;
+    background: #213763;
+}
+.feue.sheet.actor .gba-sheet .gba-row img {
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    border: 1px solid #b8b689;
+    background: #17274e;
+    object-fit: cover;
+}
+.feue.sheet.actor .gba-sheet .gba-row-info { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.feue.sheet.actor .gba-sheet .gba-row-info strong { color: var(--feue-text); font-size: 19px; font-weight: normal; overflow-wrap: anywhere; }
+.feue.sheet.actor .gba-sheet .gba-row-info small { color: var(--gba-muted); font: 13px/1.35 var(--gba-font-readable); text-shadow: none; }
+.feue.sheet.actor .gba-sheet .gba-row-controls { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 4px; }
+
+/* Party: member HP and the convoy unit picker. */
+.feue.sheet.actor .gba-party .party-member-hp { display: grid; grid-template-columns: auto minmax(60px, 160px); justify-content: start; align-items: center; gap: 8px; color: var(--gba-blue); font: 13px/1.2 var(--gba-font-readable); text-shadow: none; }
+.feue.sheet.actor .gba-party .gba-meter { height: 8px; overflow: hidden; border: 1px solid #122146; background: #182857; box-shadow: 0 1px 0 #7c93c7, inset 0 1px 0 #091632; }
+.feue.sheet.actor .gba-party .gba-meter > span { display: block; height: 100%; background: linear-gradient(#e3ffca 0 25%, #93d991 25% 75%, #4a9b85 75%); }
+.feue.sheet.actor .gba-party .party-convoy-unit-label { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; color: var(--gba-gold); }
+.feue.sheet.actor .gba-party .party-convoy-unit { flex: 1; }
+.feue.sheet.actor .gba-party .party-convoy-actions { margin: 8px 0; }
+
+/* Shop: status badge, settings and the stock list. */
+.feue.sheet.actor .gba-shop .shop-status-badge { padding: 1px 10px; border: 1px solid; font-size: 17px; letter-spacing: 1px; text-transform: uppercase; }
+.feue.sheet.actor .gba-shop .shop-status-badge.is-open { border-color: #8fd57a; background: #1f4a3a; color: #c6ffa6; }
+.feue.sheet.actor .gba-shop .shop-status-badge.is-closed { border-color: #d99a7a; background: #4a2a2a; color: #ffd4b4; }
+.feue.sheet.actor .gba-shop .shop-config { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; margin-bottom: 10px; }
+.feue.sheet.actor .gba-shop .shop-config label { display: grid; gap: 4px; color: var(--gba-gold); }
+.feue.sheet.actor .gba-shop :is(.shop-stock-columns, .shop-item) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 76px 72px 156px;
+    align-items: center;
+    gap: 10px;
+}
+.feue.sheet.actor .gba-shop .shop-stock-columns { padding: 0 9px; color: var(--gba-gold); font-size: 16px; }
+.feue.sheet.actor .gba-shop .shop-stock-columns span:nth-child(2), .feue.sheet.actor .gba-shop .shop-item-price { text-align: right; }
+.feue.sheet.actor .gba-shop .shop-item-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.feue.sheet.actor .gba-shop .shop-item-price { color: var(--gba-gold); font-size: 21px; font-variant-numeric: tabular-nums; }
+.feue.sheet.actor .gba-shop .shop-item-stock { color: var(--feue-text); text-align: center; font-size: 20px; }
+.feue.sheet.actor .gba-shop .shop-item-stock input { width: 100%; }
+@container feue-roster (max-width: 540px) {
+    .feue.sheet.actor .gba-sheet .gba-portrait { flex-basis: 56px; width: 56px; height: 56px; }
+    .feue.sheet.actor .gba-sheet .gba-name input { font-size: 22px; }
+    .feue.sheet.actor .gba-shop .shop-stock-columns { display: none; }
+    .feue.sheet.actor .gba-shop .shop-item { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .feue.sheet.actor .gba-shop .shop-item-name { grid-column: 1 / -1; }
+    .feue.sheet.actor .gba-shop .shop-item-price { text-align: left; }
+    .feue.sheet.actor .gba-shop .shop-config { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .feue.sheet.actor .gba-shop .shop-config label:first-child { grid-column: 1 / -1; }
+}
+
+/* Party and Shop dialogs: buy, sell, gold, XP, starting package and convoy transfers. */
+.feue-gba-dialog .window-content {
+    padding: 10px;
+    color: var(--feue-text);
+    background: linear-gradient(125deg, #293f6d, #172449 65%);
+    font: 14px/1.45 var(--gba-font-readable);
+    color-scheme: dark;
+}
+.feue-gba-dialog :is(label, h3, h4, th, dt, b, strong) { color: var(--gba-gold); font-family: var(--feue-font-body); font-weight: normal; font-size: 18px; }
+.feue-gba-dialog p { margin: 4px 0 8px; }
+.feue-gba-dialog .hint { color: var(--gba-muted); font-size: 13px; }
+.feue-gba-dialog .form-group { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.feue-gba-dialog .form-group label { flex: 0 0 auto; }
+.feue-gba-dialog :is(input, select) {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    padding: 3px 7px;
+    border: 1px solid #99accf;
+    border-radius: 0;
+    background: #12234a;
+    color: var(--gba-blue);
+    box-shadow: inset 1px 1px 0 #080f24;
+}
+.feue-gba-dialog input[type="number"] { font-size: 16px; text-align: center; }
+.feue-gba-dialog :is(.dialog-buttons button, .sell-btn) {
+    min-height: 32px;
+    border: 1px solid #f2e8bc;
+    border-radius: 0;
+    background: #26355f;
+    color: var(--gba-gold);
+    font: 18px/1.1 var(--feue-font-body);
+    text-shadow: 1px 1px 0 var(--gba-ink);
+}
+.feue-gba-dialog :is(.dialog-buttons button, .sell-btn):hover:not(:disabled) { background: #3a5291; }
+.feue-gba-dialog .sell-btn { display: inline-flex; align-items: center; gap: 5px; width: auto; min-height: 28px; padding: 2px 9px; font-size: 16px; }
+.feue-gba-dialog .sell-btn:disabled { opacity: .45; }
+.feue-gba-dialog :is(a, button, input, select):focus-visible { outline: 2px solid var(--gba-gold); outline-offset: 2px; box-shadow: none; }
+.feue-gba-dialog .feue-shop-deal { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.feue-gba-dialog .feue-shop-deal img { flex: 0 0 auto; width: 32px; height: 32px; border: 1px solid #b8b689; background: #17274e; }
+.feue-gba-dialog .feue-shop-deal strong { color: var(--feue-text); font-size: 22px; }
+.feue-gba-dialog .feue-shop-totals { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 10px 0; }
+.feue-gba-dialog .feue-shop-totals dd { margin: 0; color: var(--feue-text); font: 20px/1.2 var(--feue-font-body); font-variant-numeric: tabular-nums; }
+.feue-gba-dialog .feue-sell-table { width: 100%; margin: 0 0 6px; border-collapse: collapse; }
+.feue-gba-dialog .feue-sell-table thead { background: none; border: 0; text-shadow: none; }
+.feue-gba-dialog .feue-sell-table :is(th, td) { padding: 5px 6px; border-bottom: 1px solid #b4c3df33; background: none; text-align: left; }
+.feue-gba-dialog .feue-sell-table th { border-bottom-color: #b4c3df66; font-size: 16px; }
+.feue-gba-dialog .feue-sell-table tr:nth-child(even) td { background: #ffffff08; }
+.feue-gba-dialog .feue-sell-table .feue-shop-deal img { width: 24px; height: 24px; }
+.feue-gba-dialog .feue-sell-table .feue-shop-price { color: var(--gba-gold); font: 18px/1 var(--feue-font-body); }

@@ -1,117 +1,78 @@
-<form class="feue {{cssClass}} flexcol shop-sheet" autocomplete="off">
+<form class="feue gba-sheet gba-shop {{cssClass}}" autocomplete="off">
 
-    <header class="sheet-header flexrow">
-        <img class="profile-img" src="{{actor.img}}" data-edit="img" title="{{actor.name}}" height="80" width="80" />
-        <div class="header-fields flexcol">
-            <h1 class="charname">
-                <input name="name" type="text" value="{{actor.name}}" placeholder="Shop Name" />
-            </h1>
-            <div class="header-row flexrow">
-                <div class="resource flexrow shop-status {{#if actor.system.isOpen}}is-open{{else}}is-closed{{/if}}">
-                    <div class="resource-label">Status</div>
-                    <div class="resource-value">
-                        {{#if actor.system.isOpen}}<span class="open-badge">OPEN</span>{{else}}<span class="closed-badge">CLOSED</span>{{/if}}
-                    </div>
-                    {{#if isGM}}
-                    <button type="button" class="shop-toggle-open">
-                        {{#if actor.system.isOpen}}Close{{else}}Open{{/if}}
-                    </button>
-                    {{/if}}
+    <header class="gba-header">
+        <img class="gba-portrait" src="{{actor.img}}" data-edit="img" title="{{actor.name}}" alt="{{actor.name}}" />
+        <div class="gba-header-fields">
+            <div class="gba-kind">Shop</div>
+            <h1 class="gba-name"><input name="name" type="text" value="{{actor.name}}" placeholder="Shop Name" aria-label="Shop name" /></h1>
+            <div class="gba-stats">
+                <div class="gba-stat shop-status">
+                    {{#if actor.system.isOpen}}<span class="shop-status-badge is-open">Open</span>{{else}}<span class="shop-status-badge is-closed">Closed</span>{{/if}}
+                    {{#if isGM}}<button type="button" class="shop-toggle-open">{{#if actor.system.isOpen}}<i class="fas fa-door-closed"></i> Close shop{{else}}<i class="fas fa-door-open"></i> Open shop{{/if}}</button>{{/if}}
                 </div>
-                {{#if party}}
-                <div class="resource flexrow">
-                    <div class="resource-label">Party</div>
-                    <div class="resource-value">{{party.name}} ({{party.gold}}g)</div>
-                </div>
-                {{/if}}
+                {{#if party}}<div class="gba-stat"><span>{{party.name}}</span><b>{{party.gold}}g</b></div>{{else}}<div class="gba-stat"><span class="gba-hint">No party linked</span></div>{{/if}}
             </div>
-            {{#if isGM}}
-            <div class="shop-config flexrow">
-                <div class="form-group">
-                    <label>Linked Party</label>
-                    <select class="shop-party-select">
-                        <option value="">— None —</option>
-                        {{#each parties}}
-                        <option value="{{this.id}}" {{#ifEquals ../actor.system.partyId this.id}}selected{{/ifEquals}}>{{this.name}}</option>
-                        {{/each}}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Buy ×</label>
-                    <input type="number" class="shop-buy-mult" value="{{buyMultiplier}}" step="0.1" min="0" />
-                </div>
-                <div class="form-group">
-                    <label>Sell ×</label>
-                    <input type="number" class="shop-sell-mult" value="{{sellMultiplier}}" step="0.1" min="0" />
-                </div>
-            </div>
-            {{/if}}
         </div>
     </header>
 
-    <section class="sheet-body shop-body" data-drop-target="true">
-
+    <section class="sheet-body" data-drop-target="true">
         {{#if isGM}}
-        <div class="shop-drop-hint">
-            <i class="fas fa-box"></i> Drag weapon or item documents here to stock the shop.
-        </div>
+        <section class="gba-panel shop-settings">
+            <div class="gba-panel-heading"><h3>Shop Settings</h3></div>
+            <div class="shop-config">
+                <label><span>Linked Party</span>
+                    <select class="shop-party-select">
+                        <option value="">— None —</option>
+                        {{#each parties}}<option value="{{this.id}}" {{#ifEquals ../actor.system.partyId this.id}}selected{{/ifEquals}}>{{this.name}}</option>{{/each}}
+                    </select>
+                </label>
+                <label><span>Buy ×</span><input type="number" class="shop-buy-mult" value="{{buyMultiplier}}" step="0.1" min="0" /></label>
+                <label><span>Sell ×</span><input type="number" class="shop-sell-mult" value="{{sellMultiplier}}" step="0.1" min="0" /></label>
+            </div>
+            <p class="gba-hint gba-drop-hint"><i class="fas fa-box"></i> Drag weapon or item documents here to stock the shop. Leave Stock blank for unlimited.</p>
+        </section>
         {{/if}}
 
-        <div class="shop-stock-header flexrow">
-            <h3 style="flex:1;">Stock ({{stock.length}})</h3>
-            {{#if actor.system.isOpen}}
-                {{#if party}}
-                <button type="button" class="shop-open-sell"><i class="fas fa-coins"></i> Sell Items…</button>
-                {{/if}}
-            {{/if}}
-        </div>
-
-        {{#if stock.length}}
-        <table class="shop-stock-table">
-            <thead>
-                <tr>
-                    <th>Item</th>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Stock</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
+        <section class="gba-panel shop-stock">
+            <div class="gba-panel-heading">
+                <h3>Stock <small>({{stock.length}})</small></h3>
+                {{#if actor.system.isOpen}}{{#if party}}<button type="button" class="shop-open-sell"><i class="fas fa-coins"></i> Sell Items…</button>{{/if}}{{/if}}
+            </div>
+            {{#if stock.length}}
+            <ol class="gba-list shop-stock-list">
+                <li class="shop-stock-columns" aria-hidden="true"><span>Item</span><span>Price</span><span>Stock</span><span></span></li>
                 {{#each stock}}
-                <tr class="shop-item" data-item-id="{{this.id}}">
-                    <td><img src="{{this.img}}" width="20" height="20" /> {{this.name}}</td>
-                    <td>{{this.type}}</td>
-                    <td>{{this.buyPrice}}g</td>
-                    <td>
+                <li class="gba-row shop-item" data-item-id="{{this.id}}">
+                    <div class="shop-item-name">
+                        <img src="{{this.img}}" alt="" />
+                        <div class="gba-row-info"><strong>{{this.name}}</strong><small>{{this.typeLabel}}</small></div>
+                    </div>
+                    <span class="shop-item-price">{{this.buyPrice}}g</span>
+                    <span class="shop-item-stock">
                         {{#if ../isGM}}
-                        <input type="number" class="shop-stock-quantity" value="{{#unless this.unlimited}}{{this.stockQty}}{{/unless}}" placeholder="∞" min="0" style="width:60px;" />
-                        {{else}}
-                            {{#if this.unlimited}}∞{{else}}{{this.stockQty}}{{/if}}
-                        {{/if}}
-                    </td>
-                    <td class="shop-item-controls">
-                        {{#if ../actor.system.isOpen}}
-                        <a class="shop-item-buy" title="Buy"><i class="fas fa-shopping-cart"></i></a>
-                        {{/if}}
+                        <input type="number" class="shop-stock-quantity" value="{{#unless this.unlimited}}{{this.stockQty}}{{/unless}}" placeholder="∞" min="0" aria-label="{{this.name}} stock" />
+                        {{else}}{{#if this.unlimited}}∞{{else}}{{this.stockQty}}{{/if}}{{/if}}
+                    </span>
+                    <div class="gba-row-controls">
+                        {{#if ../actor.system.isOpen}}<a class="shop-item-buy gba-button" title="Buy {{this.name}}"><i class="fas fa-shopping-cart"></i> Buy</a>{{/if}}
                         {{#if ../isGM}}
-                        <a class="shop-item-edit" title="Edit"><i class="fas fa-edit"></i></a>
-                        <a class="shop-item-delete" title="Remove"><i class="fas fa-trash"></i></a>
+                        <a class="shop-item-edit gba-button gba-icon-button" title="Edit" aria-label="Edit {{this.name}}"><i class="fas fa-edit"></i></a>
+                        <a class="shop-item-delete gba-button gba-icon-button gba-danger" title="Remove" aria-label="Remove {{this.name}}"><i class="fas fa-trash"></i></a>
                         {{/if}}
-                    </td>
-                </tr>
+                    </div>
+                </li>
                 {{/each}}
-            </tbody>
-        </table>
-        {{else}}
-        <p class="shop-empty">No items in stock.</p>
-        {{/if}}
+            </ol>
+            {{else}}
+            <p class="gba-empty">No items in stock.</p>
+            {{/if}}
+        </section>
 
         {{#if isGM}}
-        <div class="shop-notes">
-            <h3>GM Notes</h3>
-            <textarea name="system.notes" rows="4">{{actor.system.notes}}</textarea>
-        </div>
+        <section class="gba-panel shop-notes">
+            <div class="gba-panel-heading"><h3><label for="{{actor.id}}-shop-notes">GM Notes</label></h3></div>
+            <textarea id="{{actor.id}}-shop-notes" name="system.notes" rows="4">{{actor.system.notes}}</textarea>
+        </section>
         {{/if}}
     </section>
 </form>

@@ -428,6 +428,8 @@
                             {{/each}}
                         </select>
                         <span class="support-bonus">{{sup.bonusText}}</span>
+                        <span class="support-status{{#if sup.active}} is-active{{else}}{{#if sup.deployed}} is-deployed{{/if}}{{/if}}" title="Support bonuses apply while both units are on the same map; only the highest-ranked Support counts.">{{sup.statusText}}</span>
+                        <span class="support-choice">{{#if sup.choosable}}<a class="support-use" data-support-key="{{sup.key}}" title="Use this Support's bonuses on this map">Use</a>{{/if}}</span>
                         <a class="support-remove" data-support-key="{{sup.key}}" title="Remove"><i class="fas fa-times"></i></a>
                     </div>
                     {{/each}}

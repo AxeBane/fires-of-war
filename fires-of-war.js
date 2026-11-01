@@ -32,7 +32,8 @@ import {registerTacticalEncounter} from "./module/encounter/tactical-encounter.m
 import {applyTerrainStats, getAppliedTerrain, terrainCombatStats, tokenTerrain} from "./module/map/terrain.mjs";
 import {applyRescueStats, getRescueBase, rescueMovementHalved} from "./module/encounter/event-rules.mjs";
 import {registerEventInteractions} from "./module/encounter/event-interactions.mjs";
-import {registerConvoy, requestConvoy, inventoryUsage} from "./module/units/convoy.mjs";
+import {registerConvoy, requestConvoy, inventoryUsage, withInventoryLock, owns} from "./module/units/convoy.mjs";
+import {registerSupports, supportStatus} from "./module/units/supports.mjs";
 import {convoySheetData, convoyUnits, bindConvoySheet, dropConvoyItem} from "./module/units/convoy-ui.mjs";
 import {hasSkill, skillRule, skillAutomationConfig, skillAutomationInfo, passiveTextBonuses, passiveSkillBonuses, skillModifiers, triggerSkills, TOME_TYPES} from "./module/skills/skill-automation.mjs";
 import {registerUnitActions, assertUnitAction, actorActionToken, completeMajorAction, applyMountProfile, toggleMount, unitCombatant, relaySheetAction, validateUnitTarget, withUnitActionLock} from "./module/units/unit-actions.mjs";
@@ -61,6 +62,7 @@ registerTacticalForecast();
 registerBattleForecast();
 registerTacticalEncounter();
 registerConvoy();
+registerSupports();
 registerEventInteractions();
 registerUnitActions();
 registerFallRules();
@@ -123,18 +125,7 @@ const FEUE = {
         "Paralysis", "Shock", "Rattled", "Confusion", "Blood Sacrifice",
         "Burning", "Buffeted", "Frozen", "Guard Break", "Knocked Out"
     ],
-    SUPPORT_RANKS: ["C", "B", "A", "S"],
-    SUPPORT_RANK_MULTIPLIER: { C: 1, B: 2, A: 3, S: 4 },
-    AFFINITY_BONUSES: {
-        Fire: { primary: "Atk", secondary: "Hit", pVal: 1, sVal: 1 },
-        Thunder: { primary: "Def", secondary: "Avo", pVal: 1, sVal: 1 },
-        Wind: { primary: "AS", secondary: "Avo", pVal: 1, sVal: 1 },
-        Ice: { primary: "Res", secondary: "Dodge", pVal: 1, sVal: 1 },
-        Earth: { primary: "Avo", secondary: "Dodge", pVal: 1, sVal: 1 },
-        Dark: { primary: "Crit", secondary: "Atk", pVal: 1, sVal: 1 },
-        Light: { primary: "Hit", secondary: "Crit", pVal: 1, sVal: 1 },
-        Anima: { primary: "Dodge", secondary: "Res", pVal: 1, sVal: 1 }
-    }
+    SUPPORT_RANKS: ["C", "B", "A", "S"]
 };
 
 // Common crest names. The list is display-only; users can type any value.
@@ -346,6 +337,13 @@ class FiresOfWarActor extends Actor {
                 for (const field of ["attributes", "maximums", "growthRates", "combat"]) for (const k of Object.keys(totals[field])) add(item, field, k, parsed[field][k]);
             }
         }
+        // Supports: the highest-ranked partner deployed on the same map grants its Affinity's stats.
+        const support = supportStatus(this).active;
+        this.system.activeSupportBonus = support ? {key: support.key, name: support.name, rank: support.rank, bonuses: support.bonuses} : null;
+        for (const [key, value] of Object.entries(support?.bonuses ?? {})) {
+            totals.attributes[key] += value;
+            totals.sources.push({path: `attributes.${key}`, label: `Support: ${support.name} (${support.rank})`, value});
+        }
         const passives = passiveSkillBonuses(this);
         for (const field of ["maximums", "growthRates"]) for (const [key, value] of Object.entries(passives[field])) totals[field][key] = (totals[field][key] ?? 0) + value;
         totals.sources.push(...passives.terms.filter(t => /^(maximums|growthRates)\./.test(t.path)));
@@ -545,10 +543,12 @@ class FiresOfWarActor extends Actor {
             if (k === "hp") {
                 // HP special: max = HP stat, value = current HP (user-managed)
                 let hpMax = base + (bonus.attributes.hp || 0);
-                // Fatigue: when fatigue >= BLD, max HP is halved.
+                // Fatigue: when fatigue >= BLD, max HP is halved. HP is prepared before BLD,
+                // so use BLD's class and bonus value; the sheet reads the same threshold.
                 if (useFatigue) {
-                    const bld = Number(system.attributes?.build?.value || 0);
+                    const bld = Number(baseStats.build || 0) + (bonus.attributes.build || 0);
                     const fat = Number(system.fatigue?.value || 0);
+                    system.fatigue = {...system.fatigue, threshold: bld};
                     if (bld > 0 && fat >= bld) {
                         ledger.add("attributes.hp", "Fatigued (halved)", Math.floor(hpMax / 2) - hpMax);
                         hpMax = Math.floor(hpMax / 2);
@@ -767,11 +767,13 @@ class FiresOfWarActor extends Actor {
         const newAccumulated = {};
         const rollDetails = [];
         const useStatic = !!game.settings.get("fires-of-war", "useStaticGrowths");
+        // Generous Growth Rates: a failed roll carries into the stat's next roll until it increases.
+        const generous = !!game.settings.get("fires-of-war", "generousGrowthRates");
         const newLevelForStatic = currentLevel + 1;
 
         for (const stat of FEUE.STAT_KEYS) {
             const baseGR = Number(gr[stat] || 0);
-            const accum = Number(accumulated[stat] || 0);
+            const accum = generous ? Number(accumulated[stat] || 0) : 0;
             const effectiveGR = baseGR + accum;
 
             // Check stat cap first
@@ -784,7 +786,8 @@ class FiresOfWarActor extends Actor {
                 }
             } else {
                 const attribute = stat === "speed" ? getRescueBase(this)?.speed ?? system.attributes[stat] : system.attributes[stat];
-                const currentVal = Number(attribute?.value || 0) - (stat === "defense" ? getAppliedTerrain(this).defense : 0);
+                // Terrain and Support bonuses are temporary and do not count toward the cap.
+                const currentVal = Number(attribute?.value || 0) - (stat === "defense" ? getAppliedTerrain(this).defense : 0) - Number(system.activeSupportBonus?.bonuses?.[stat] || 0);
                 const cap = Number(attribute?.max || 0);
                 if (cap > 0 && currentVal >= cap) atCap = true;
             }
@@ -801,7 +804,7 @@ class FiresOfWarActor extends Actor {
                 gains[stat] = gained;
                 newAccumulated[stat] = 0;
                 rollDetails.push({ stat, roll: "static", effectiveGR: baseGR, gained, atCap: false });
-            } else if (effectiveGR >= 10) {
+            } else if (generous && effectiveGR >= 10) {
                 // Guaranteed +1, plus +1 per additional 10 above threshold
                 const gained = 1 + Math.floor((effectiveGR - 10) / 10);
                 gains[stat] = gained;
@@ -810,7 +813,13 @@ class FiresOfWarActor extends Actor {
             } else {
                 const roll = await new Roll("1d10").evaluate();
                 const sum = roll.total + effectiveGR;
-                if (sum >= 10) {
+                if (!generous) {
+                    // +1 for every 10 the roll and Growth Rate reach; a miss is not carried over.
+                    const gained = Math.floor(sum / 10);
+                    gains[stat] = gained;
+                    newAccumulated[stat] = 0;
+                    rollDetails.push({ stat, roll: roll.total, effectiveGR, gained, atCap: false });
+                } else if (sum >= 10) {
                     gains[stat] = 1;
                     newAccumulated[stat] = 0;
                     rollDetails.push({ stat, roll: roll.total, effectiveGR, gained: 1, atCap: false });
@@ -858,7 +867,7 @@ class FiresOfWarActor extends Actor {
         }).join("");
 
         const gainList = gainedStats.map(([k, v]) => `<span class="gain">+${v} ${FEUE.STAT_LABELS[k] || k}</span>`);
-        ChatMessage.create({
+        if (game.settings.get("fires-of-war", "levelUpChat")) ChatMessage.create({
             user: game.user.id, speaker: ChatMessage.getSpeaker({ actor: this }),
             content: `<div class="feue-levelup"><h3>${this.name} reached level ${newLevel}!</h3>${gainList.length ? `<div class="stat-gains">${gainList.join("")}</div>` : "<p>No stats increased.</p>"}<details><summary>Roll Details</summary><table class="feue-gr-table"><tr><th>Stat</th><th>Roll</th><th>GR</th><th>Result</th></tr>${detailRows}</table></details></div>`
         });
@@ -937,7 +946,7 @@ class FiresOfWarActor extends Actor {
                 "system.level": newLevel,
                 "system.totalLevel": (this.system.totalLevel || currentLevel) + 1
             });
-            ChatMessage.create({
+            if (game.settings.get("fires-of-war", "levelUpChat")) ChatMessage.create({
                 user: game.user.id,
                 speaker: ChatMessage.getSpeaker({ actor: this }),
                 content: `<div class="feue-levelup"><h3>${this.name} promoted to ${chosen.name} at level ${newLevel}${using}!</h3></div>`
@@ -949,7 +958,7 @@ class FiresOfWarActor extends Actor {
                 "system.level": 1,
                 "system.totalLevel": (this.system.totalLevel || prevLevel) + (levelUp ? 1 : 0)
             });
-            ChatMessage.create({
+            if (game.settings.get("fires-of-war", "levelUpChat")) ChatMessage.create({
                 user: game.user.id,
                 speaker: ChatMessage.getSpeaker({ actor: this }),
                 content: `<div class="feue-levelup"><h3>${this.name} promoted to ${chosen.name}${using}!</h3><p>Level reset to 1.</p></div>`
@@ -1607,15 +1616,11 @@ class FiresOfWarCharacterSheet extends ActorSheet {
         // Support ranks
         const cha = this.actor.system.attributes?.charm?.value || 0;
         data.supportLimit = Math.min(1 + Math.floor(cha / 4), 8);
-        const supports = this.actor.system.supportRanks || {};
-        data.supportEntries = Object.entries(supports).map(([key, val]) => {
-            const aff = FEUE.AFFINITY_BONUSES[val.affinity] || null;
-            const mult = FEUE.SUPPORT_RANK_MULTIPLIER[val.rank] || 0;
-            let bonusText = "—";
-            if (aff && mult) {
-                bonusText = `+${aff.pVal * mult} ${aff.primary}, +${aff.sVal * mult} ${aff.secondary}`;
-            }
-            return { key, name: val.name, rank: val.rank, affinity: val.affinity, bonusText };
+        const supportState = supportStatus(this.actor);
+        data.supportEntries = supportState.supports.map(support => {
+            const active = support.key === supportState.active?.key;
+            return {...support, active, choosable: !active && supportState.tied.includes(support.key),
+                statusText: active ? "Active" : support.deployed ? "On this map" : "Not on this map"};
         });
         data.supportCount = data.supportEntries.length;
 
@@ -1653,7 +1658,7 @@ class FiresOfWarCharacterSheet extends ActorSheet {
 
         // Fatigue display
         if (data.useFatigue) {
-            const bld = Number(this.actor.system.attributes?.build?.value || 0);
+            const bld = Number(this.actor.system.fatigue?.threshold || 0);
             const fat = Number(this.actor.system.fatigue?.value || 0);
             data.fatigueValue = fat;
             data.fatigueMax = bld;
@@ -1741,6 +1746,18 @@ class FiresOfWarCharacterSheet extends ActorSheet {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
             event.currentTarget.click();
+        });
+        // Other Weapons stays open when an edit re-renders the sheet.
+        const otherWeapons = html.find(".other-weapons-toggle");
+        if (this._otherWeaponsOpen) {
+            otherWeapons.next(".other-weapons-content").show();
+            otherWeapons.find("i.fas").toggleClass("fa-caret-right fa-caret-down");
+        }
+        otherWeapons.click(ev => {
+            const toggle = $(ev.currentTarget);
+            this._otherWeaponsOpen = !this._otherWeaponsOpen;
+            toggle.next(".other-weapons-content").slideToggle(200);
+            toggle.find("i.fas").toggleClass("fa-caret-right fa-caret-down");
         });
         if (!this.options.editable) return;
 
@@ -2061,13 +2078,8 @@ class FiresOfWarCharacterSheet extends ActorSheet {
             const rank = ev.currentTarget.value;
             this.actor.update({ [`system.supportRanks.${key}.rank`]: rank });
         });
-
-        html.find(".other-weapons-toggle").click(ev => {
-            const toggle = $(ev.currentTarget);
-            const content = toggle.next(".other-weapons-content");
-            content.slideToggle(200);
-            toggle.find("i.fas").toggleClass("fa-caret-right fa-caret-down");
-        });
+        // Supports of equal rank on the same map: the unit chooses which one applies.
+        html.find(".support-use").click(ev => this.actor.update({ "system.activeSupport": $(ev.currentTarget).data("support-key") }));
 
         // Mark the Level Up Bonus item as non-deletable and visually distinct
         const lubId = this.actor.items.find(i =>
@@ -3500,8 +3512,21 @@ class FiresOfWarItemSheet extends ItemSheet {
             this._renderPromotionTree(html);
             html.find(".promo-tree-row a").remove();
         }
+        // Expanded bonus sections stay open when an edit re-renders the sheet (read-only sheets can expand them too).
+        this._expandedBonuses ??= new Set();
+        const showBonuses = (section, expanded) => {
+            section.toggleClass("collapsed", !expanded);
+            section.find(".bonus-toggle").html(`<i class="fas ${expanded ? "fa-chevron-up" : "fa-chevron-down"}"></i> ${expanded ? "Hide" : "Show All"}`);
+        };
+        html.find(".feue-bonus-section").each((_, el) => showBonuses($(el), this._expandedBonuses.has(el.dataset.bonusSection)));
+        html.find(".bonus-toggle").click(ev => {
+            ev.preventDefault();
+            const section = $(ev.currentTarget).closest(".feue-bonus-section"), key = section[0].dataset.bonusSection;
+            const expanded = section.hasClass("collapsed");
+            if (expanded) this._expandedBonuses.add(key); else this._expandedBonuses.delete(key);
+            showBonuses(section, expanded);
+        });
         if (!this.options.editable) return;
-        html.find("input, select, textarea").change(ev => this._saveField(ev));
         const changeConfig = html.find(".feue-class-change-config")[0];
         if (changeConfig) {
             const classes = () => [...classChangeConfig(this.item).classes];
@@ -3533,14 +3558,6 @@ class FiresOfWarItemSheet extends ItemSheet {
                 } catch (error) { ui.notifications.warn(error.message); }
             });
         }
-        html.find(".bonus-toggle").click(ev => {
-            ev.preventDefault();
-            const section = $(ev.currentTarget).closest(".feue-bonus-section");
-            section.toggleClass("collapsed");
-            const label = section.hasClass("collapsed") ? "Show All" : "Hide";
-            const icon = section.hasClass("collapsed") ? "fa-chevron-down" : "fa-chevron-up";
-            $(ev.currentTarget).html(`<i class="fas ${icon}"></i> ${label}`);
-        });
 
         if (this.item.type === "battalion") {
             html.find("[data-area-mode]").click(ev => {
@@ -3629,6 +3646,9 @@ class FiresOfWarItemSheet extends ItemSheet {
             });
         }
     }
+
+    /** Each edit saves only its own field through _saveField. Also submitting the whole form saved and re-rendered the sheet twice per edit. */
+    _onChangeInput(event) { return this._saveField(event); }
 
     async _saveField(ev) {
         const el = ev.currentTarget;
@@ -4018,7 +4038,7 @@ class FiresOfWarPartySheet extends ActorSheet {
         return foundry.utils.mergeObject(super.defaultOptions, {
             classes: ["feue", "sheet", "actor", "party"],
             template: "systems/fires-of-war/templates/actor/party-sheet.html",
-            width: 600, height: 600
+            width: 620, height: 680, scrollY: [".sheet-body"]
         });
     }
 
@@ -4036,6 +4056,7 @@ class FiresOfWarPartySheet extends ActorSheet {
                 totalLevel: a.system.totalLevel || 1,
                 hp: a.system.attributes?.hp?.value || 0,
                 hpMax: a.system.attributes?.hp?.max || 0,
+                hpPercent: Number(a.system.attributes?.hp?.max || 0) > 0 ? clampPercent(Number(a.system.attributes.hp.value || 0) / Number(a.system.attributes.hp.max) * 100) : 0,
                 className: a.system.activeClassName || "—",
                 experience: a.system.experience || 0
             }));
@@ -4183,7 +4204,7 @@ class FiresOfWarPartySheet extends ActorSheet {
                 },
                 default: "grant",
                 close: () => resolve()
-            }).render(true);
+            }, { classes: ["dialog", "feue-gba-dialog"], width: 420 }).render(true);
         });
     }
 
@@ -4220,7 +4241,7 @@ class FiresOfWarPartySheet extends ActorSheet {
 
         new Dialog({
             title: "Award XP to All Party Members",
-            content: `<form><div class="form-group"><label>XP per character</label><input type="number" id="party-xp-amount" value="10" min="1"/></div><p style="font-size:12px;color:#666;">Will award to ${members.length} member(s).</p></form>`,
+            content: `<form><div class="form-group"><label for="party-xp-amount">XP per character</label><input type="number" id="party-xp-amount" value="10" min="1"/></div><p class="hint">Will award to ${members.length} member(s).</p></form>`,
             buttons: {
                 award: {
                     icon: '<i class="fas fa-star"></i>', label: "Award",
@@ -4237,7 +4258,7 @@ class FiresOfWarPartySheet extends ActorSheet {
                 cancel: { label: "Cancel" }
             },
             default: "award"
-        }).render(true);
+        }, { classes: ["dialog", "feue-gba-dialog"], width: 360 }).render(true);
     }
 
     async _onAdjustGold(amount) {
@@ -4246,7 +4267,7 @@ class FiresOfWarPartySheet extends ActorSheet {
         const sign = amount > 0 ? "+" : "";
         new Dialog({
             title: `${sign}${amount} Gold`,
-            content: `<form><div class="form-group"><label>Amount</label><input type="number" id="party-gold-amount" value="${Math.abs(amount)}" min="1"/></div></form>`,
+            content: `<form><div class="form-group"><label for="party-gold-amount">Amount</label><input type="number" id="party-gold-amount" value="${Math.abs(amount)}" min="1"/></div></form>`,
             buttons: {
                 ok: {
                     label: "Apply",
@@ -4259,7 +4280,7 @@ class FiresOfWarPartySheet extends ActorSheet {
                 cancel: { label: "Cancel" }
             },
             default: "ok"
-        }).render(true);
+        }, { classes: ["dialog", "feue-gba-dialog"], width: 320 }).render(true);
     }
 }
 
@@ -4271,7 +4292,7 @@ class FiresOfWarShopSheet extends ActorSheet {
         return foundry.utils.mergeObject(super.defaultOptions, {
             classes: ["feue", "sheet", "actor", "shop"],
             template: "systems/fires-of-war/templates/actor/shop-sheet.html",
-            width: 700, height: 650
+            width: 700, height: 650, scrollY: [".sheet-body"]
         });
     }
 
@@ -4293,6 +4314,9 @@ class FiresOfWarShopSheet extends ActorSheet {
                     name: i.name,
                     img: i.img,
                     type: i.type,
+                    typeLabel: i.type === "weapon"
+                        ? [FEUE.WeaponTypes[i.system.weaponType] ?? "Weapon", i.system.rank].filter(Boolean).join(" · ")
+                        : { consumable: "Consumable", equippable: "Equipment", miscellaneous: "Treasure" }[i.system.itemType] ?? "Item",
                     baseValue,
                     buyPrice,
                     stockQty,
@@ -4303,6 +4327,12 @@ class FiresOfWarShopSheet extends ActorSheet {
         const party = game.actors.get(this.actor.system.partyId);
         data.party = party ? { id: party.id, name: party.name, gold: party.system.gold || 0 } : null;
         return data;
+    }
+
+    /** Players who do not own the shop still sell to it; the GM checks each sale. */
+    _disableFields(form) {
+        super._disableFields(form);
+        form.querySelectorAll(".shop-open-sell").forEach(button => { button.disabled = false; });
     }
 
     activateListeners(html) {
@@ -4383,20 +4413,26 @@ class FiresOfWarShopSheet extends ActorSheet {
         }
         if (!members.length) return ui.notifications.warn(game.user.isGM ? "Party has no members." : "You don't own any party members.");
 
-        const opts = members.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+        const esc = _escapeTokenActionHtml;
+        const opts = members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
         const buyMult = Number(this.actor.system.buyMultiplier ?? 1);
         const price = Math.floor(effectivePrice(item) * buyMult);
 
+        // Dialog buttons stay clickable while the dialog closes; buy once.
+        let requested = false;
         new Dialog({
             title: `Buy ${item.name}`,
             content: `<form>
-                <p><b>Price:</b> ${price}g | <b>Party Gold:</b> ${party.system.gold || 0}g</p>
-                <div class="form-group"><label>For Character</label><select id="buy-character">${opts}</select></div>
+                <div class="feue-shop-deal"><img src="${esc(item.img)}" alt="" /><strong>${esc(item.name)}</strong></div>
+                <dl class="feue-shop-totals"><dt>Price</dt><dd>${price}g</dd><dt>Party gold</dt><dd>${party.system.gold || 0}g</dd></dl>
+                <div class="form-group"><label for="buy-character">For character</label><select id="buy-character">${opts}</select></div>
             </form>`,
             buttons: {
                 buy: {
                     icon: '<i class="fas fa-coins"></i>', label: "Buy",
                     callback: async (h) => {
+                        if (requested) return;
+                        requested = true;
                         const characterId = h.find("#buy-character").val();
                         await FEUEShop.requestBuy({
                             shopId: this.actor.id, itemId, characterId, partyId
@@ -4406,7 +4442,7 @@ class FiresOfWarShopSheet extends ActorSheet {
                 cancel: { label: "Cancel" }
             },
             default: "buy"
-        }).render(true);
+        }, { classes: ["dialog", "feue-gba-dialog"], width: 360 }).render(true);
     }
 
     async _onOpenSell() {
@@ -4420,15 +4456,16 @@ class FiresOfWarShopSheet extends ActorSheet {
             .filter(a => a && a.type === "character");
         if (!game.user.isGM) members = members.filter(m => m.isOwner);
 
+        const esc = _escapeTokenActionHtml;
         const rows = [];
         for (const m of members) {
             for (const it of m.items.filter(i => (i.type === "weapon" || i.type === "item") && Number(i.system.price || 0) > 0)) {
                 const price = Math.floor(effectivePrice(it) * sellMult);
                 rows.push(`<tr>
-                    <td>${m.name}</td>
-                    <td><img src="${it.img}" width="20" height="20"/> ${it.name}</td>
-                    <td>${price}g</td>
-                    <td><a class="sell-btn" data-actor-id="${m.id}" data-item-id="${it.id}" data-price="${price}" style="cursor:pointer;color:#5a8a5a;"><i class="fas fa-coins"></i> Sell</a></td>
+                    <td>${esc(m.name)}</td>
+                    <td><span class="feue-shop-deal"><img src="${esc(it.img)}" alt="" /> ${esc(it.name)}</span></td>
+                    <td class="feue-shop-price">${price}g</td>
+                    <td><button type="button" class="sell-btn" data-actor-id="${m.id}" data-item-id="${it.id}"><i class="fas fa-coins"></i> Sell</button></td>
                 </tr>`);
             }
         }
@@ -4436,21 +4473,21 @@ class FiresOfWarShopSheet extends ActorSheet {
 
         const dlg = new Dialog({
             title: `Sell to ${this.actor.name}`,
-            content: `<table style="width:100%;font-size:12px;"><thead><tr><th>Owner</th><th>Item</th><th>Price</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table>`,
+            content: `<table class="feue-sell-table"><thead><tr><th>Owner</th><th>Item</th><th>Price</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table>`,
             buttons: { close: { label: "Close" } },
             default: "close",
             render: (h) => {
                 h.find(".sell-btn").click(async (ev) => {
+                    ev.currentTarget.disabled = true;
                     const actorId = $(ev.currentTarget).data("actor-id");
                     const itemId = $(ev.currentTarget).data("item-id");
-                    const price = Number($(ev.currentTarget).data("price"));
                     await FEUEShop.requestSell({
-                        shopId: this.actor.id, partyId, characterId: actorId, itemId, price
+                        shopId: this.actor.id, partyId, characterId: actorId, itemId
                     });
                     dlg.close();
                 });
             }
-        }, { width: 500 });
+        }, { classes: ["dialog", "feue-gba-dialog"], width: 520 });
         dlg.render(true);
     }
 }
@@ -4491,68 +4528,91 @@ const FEUEParty = {
 
 const FEUEShop = {
     async requestBuy(payload) {
-        if (game.user.isGM) return this._executeBuy(payload);
+        if (game.user.isGM) return this._report(this._executeBuy(payload));
         if (!game.users.activeGM) return ui.notifications.error("No GM online to process purchase.");
         game.socket.emit(FEUE_SOCKET, { action: "buy", ...payload, userId: game.user.id });
     },
     async requestSell(payload) {
-        if (game.user.isGM) return this._executeSell(payload);
+        if (game.user.isGM) return this._report(this._executeSell(payload));
         if (!game.users.activeGM) return ui.notifications.error("No GM online to process sale.");
         game.socket.emit(FEUE_SOCKET, { action: "sell", ...payload, userId: game.user.id });
     },
 
-    async _executeBuy({ shopId, itemId, characterId, partyId }) {
-        const shop = game.actors.get(shopId);
-        const party = game.actors.get(partyId);
-        const character = game.actors.get(characterId);
-        const item = shop?.items.get(itemId);
-        if (!shop || !party || !character || !item) return ui.notifications.error("Buy failed: missing reference.");
-        if (!shop.system.isOpen) return ui.notifications.warn("Shop is closed.");
-
-        const price = Math.floor(effectivePrice(item) * Number(shop.system.buyMultiplier ?? 1));
-        const gold = Number(party.system.gold || 0);
-        if (gold < price) return ui.notifications.warn(`Not enough gold (${gold}/${price}).`);
-
-        const stockQty = Number(item.getFlag("fires-of-war", "stockQuantity") ?? -1);
-        if (stockQty === 0) return ui.notifications.warn("Out of stock.");
-
-        // Inventory check on character (5 max for items+weapons)
-        const carried = character.items.filter(i => i.type === "item" || i.type === "weapon").length;
-        if (carried >= 5) return ui.notifications.warn(`${character.name}'s inventory is full.`);
-
-        const itemData = item.toObject();
-        delete itemData._id;
-        if (itemData.flags?.["fires-of-war"] && "stockQuantity" in itemData.flags["fires-of-war"]) {
-            delete itemData.flags["fires-of-war"].stockQuantity;
+    /** Show a refused trade to the user who asked for it. */
+    async _report(trade, userId = game.user.id) {
+        try { await trade; }
+        catch (error) {
+            if (userId === game.user.id) ui.notifications.warn(error.message);
+            else game.socket.emit(FEUE_SOCKET, { action: "shopResult", userId, message: error.message });
         }
-        await character.createEmbeddedDocuments("Item", [itemData]);
-        await party.update({ "system.gold": gold - price });
-        if (stockQty > 0) await item.setFlag("fires-of-war", "stockQuantity", stockQty - 1);
+    },
 
-        ChatMessage.create({
-            content: `<div class="feue-shop-tx"><h3>${character.name} bought ${item.name}</h3><p>From ${shop.name} for ${price}g. Party gold: ${gold - price}.</p></div>`
+    /** The shop, its linked party and a member `user` owns, or an error saying why `user` cannot trade. */
+    _trade({ shopId, partyId, characterId }, user) {
+        const shop = game.actors.get(shopId), party = game.actors.get(partyId), character = game.actors.get(characterId);
+        if (shop?.type !== "shop" || party?.type !== "party" || character?.type !== "character") throw Error("Trade failed: missing reference.");
+        if (shop.system.partyId !== party.id) throw Error(`${shop.name} does not trade with ${party.name}.`);
+        if (!(party.system.memberIds ?? []).includes(character.id)) throw Error(`${character.name} is not in ${party.name}.`);
+        if (!owns(user, character) || !shop.testUserPermission(user, "LIMITED")) throw Error(`You cannot trade for ${character.name}.`);
+        if (!shop.system.isOpen) throw Error("Shop is closed.");
+        return { shop, party, character };
+    },
+
+    // Trades run one at a time on the GM (sharing the Convoy queue) and re-read gold, stock and
+    // inventory there, so a double click or two players at once cannot spend the same gold twice.
+    _executeBuy(request, user = game.user) {
+        return withInventoryLock(async () => {
+            const { shop, party, character } = this._trade(request, user);
+            const item = shop.items.get(request.itemId);
+            if (!item) throw Error("That item is no longer in stock.");
+
+            const price = Math.floor(effectivePrice(item) * Number(shop.system.buyMultiplier ?? 1));
+            const gold = Number(party.system.gold || 0);
+            if (gold < price) throw Error(`Not enough gold (${gold}/${price}).`);
+
+            const stockQty = Number(item.getFlag("fires-of-war", "stockQuantity") ?? -1);
+            if (stockQty === 0) throw Error("Out of stock.");
+            if (inventoryUsage(character).full) throw Error(`${character.name}'s inventory is full.`);
+
+            const itemData = item.toObject();
+            delete itemData._id;
+            if (itemData.flags?.["fires-of-war"] && "stockQuantity" in itemData.flags["fires-of-war"]) {
+                delete itemData.flags["fires-of-war"].stockQuantity;
+            }
+            await character.createEmbeddedDocuments("Item", [itemData]);
+            await party.update({ "system.gold": gold - price });
+            if (stockQty > 0) await item.setFlag("fires-of-war", "stockQuantity", stockQty - 1);
+
+            ChatMessage.create({
+                content: `<div class="feue-shop-tx"><h3>${character.name} bought ${item.name}</h3><p>From ${shop.name} for ${price}g. Party gold: ${gold - price}.</p></div>`
+            });
         });
     },
 
-    async _executeSell({ shopId, partyId, characterId, itemId, price }) {
-        const shop = game.actors.get(shopId);
-        const party = game.actors.get(partyId);
-        const character = game.actors.get(characterId);
-        const item = character?.items.get(itemId);
-        if (!shop || !party || !character || !item) return ui.notifications.error("Sell failed: missing reference.");
-        if (!shop.system.isOpen) return ui.notifications.warn("Shop is closed.");
+    /** The sale price comes from the shop's Sell multiplier, never from the request. */
+    _executeSell(request, user = game.user) {
+        return withInventoryLock(async () => {
+            const { shop, party, character } = this._trade(request, user);
+            const item = character.items.get(request.itemId);
+            if (!item || !["weapon", "item"].includes(item.type) || !(Number(item.system.price || 0) > 0)) throw Error("That item can no longer be sold.");
 
-        const gold = Number(party.system.gold || 0);
-        await item.delete();
-        await party.update({ "system.gold": gold + Number(price) });
+            const price = Math.floor(effectivePrice(item) * Number(shop.system.sellMultiplier ?? 0.5));
+            const gold = Number(party.system.gold || 0);
+            await item.delete();
+            await party.update({ "system.gold": gold + price });
 
-        ChatMessage.create({
-            content: `<div class="feue-shop-tx"><h3>${character.name} sold ${item.name}</h3><p>To ${shop.name} for ${price}g. Party gold: ${gold + Number(price)}.</p></div>`
+            ChatMessage.create({
+                content: `<div class="feue-shop-tx"><h3>${character.name} sold ${item.name}</h3><p>To ${shop.name} for ${price}g. Party gold: ${gold + price}.</p></div>`
+            });
         });
     }
 };
 
-function _onFeueSocket(payload) {
+function _onFeueSocket(payload, senderId) {
+    if (payload?.action === "shopResult") {
+        if (payload.userId === game.user.id) ui.notifications.warn(payload.message);
+        return;
+    }
     if (!game.user.isGM) return;
     // Only the first GM acts to avoid duplicate writes.
     const firstGM = game.users.filter(u => u.isGM && u.active).sort((a, b) => a.id.localeCompare(b.id))[0];
@@ -4560,8 +4620,9 @@ function _onFeueSocket(payload) {
     switch (payload?.action) {
         case "adjustGold": return FEUEParty.adjustGold(payload.partyId, payload.delta);
         case "awardXp": return FEUEParty.awardXp(payload.characterIds, payload.amount);
-        case "buy": return FEUEShop._executeBuy(payload);
-        case "sell": return FEUEShop._executeSell(payload);
+        // The server supplies senderId; the request's own userId is not trusted.
+        case "buy": return FEUEShop._report(FEUEShop._executeBuy(payload, game.users.get(senderId)), senderId);
+        case "sell": return FEUEShop._report(FEUEShop._executeSell(payload, game.users.get(senderId)), senderId);
     }
 }
 
@@ -4705,6 +4766,11 @@ Hooks.once("init", () => {
         scope: "world", config: true, type: Boolean, default: true
     });
 
+    game.settings.register("fires-of-war", "levelUpChat", {
+        name: "Post Level-Ups to Chat", hint: "Post a chat card with the stat gains and growth rolls when a character levels up or promotes. Turn off to level up silently; the character sheet still shows the new stats.",
+        scope: "world", config: true, type: Boolean, default: true
+    });
+
     game.settings.register("fires-of-war", "useHolyBlood", {
         name: "Use Holy Blood",
         hint: "Enable Holy Blood character creation rule (alt rule). Adds growth rate bonuses and grants Prf rank for the bloodline weapon.",
@@ -4723,6 +4789,15 @@ Hooks.once("init", () => {
         type: Boolean,
         default: false,
         onChange: _reRenderAll
+    });
+
+    game.settings.register("fires-of-war", "generousGrowthRates", {
+        name: "Generous Growth Rates",
+        hint: "Alt rule. A failed growth roll is not lost: the roll is added to that stat's Growth Rate until the stat increases, and a Growth Rate of 10 or more grants +1 per 10 without rolling, carrying the rest. Off: roll 1d10 + Growth Rate and gain +1 per 10; a miss is simply lost. Static Growth Bonuses take priority.",
+        scope: "world",
+        config: true,
+        type: Boolean,
+        default: false
     });
 
     game.settings.register("fires-of-war", "statMaxBonus", {

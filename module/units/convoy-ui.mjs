@@ -105,7 +105,7 @@ function itemChoiceDialog(party, unitUuid, action) {
             const id = rootElement(html).querySelector(".feue-convoy-item-choice").value;
             const item = entries.find(item => item.id === id);
             await perform({action, partyId: party.id, unitUuid, itemId: id, itemUuid: item?.uuid});
-        }}, cancel: {label: "Cancel"}}}).render(true);
+        }}, cancel: {label: "Cancel"}}}, {classes: ["dialog", "feue-gba-dialog"], width: 400}).render(true);
 }
 
 /** Bind independently of Party ownership; transfers still require ownership of the selected member. */

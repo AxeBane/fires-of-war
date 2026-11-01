@@ -1,90 +1,86 @@
-<form class="feue {{cssClass}} flexcol party-sheet" autocomplete="off">
+<form class="feue gba-sheet gba-party {{cssClass}}" autocomplete="off">
 
-    <header class="sheet-header flexrow">
-        <img class="profile-img" src="{{actor.img}}" data-edit="img" title="{{actor.name}}" height="80" width="80" />
-        <div class="header-fields flexcol">
-            <h1 class="charname">
-                <input name="name" type="text" value="{{actor.name}}" placeholder="Party Name" />
-            </h1>
-            <div class="header-row flexrow">
-                <div class="resource flexrow">
-                    <div class="resource-label">Gold</div>
-                    <div class="resource-value">
-                        <input type="number" name="system.gold" value="{{actor.system.gold}}" data-dtype="Number" min="0" {{#unless isGM}}disabled{{/unless}} />
-                    </div>
-                    <button type="button" class="party-gold-adjust" data-amount="1" title="Add Gold"><i class="fas fa-plus"></i></button>
-                    <button type="button" class="party-gold-adjust" data-amount="-1" title="Subtract Gold"><i class="fas fa-minus"></i></button>
+    <header class="gba-header">
+        <img class="gba-portrait" src="{{actor.img}}" data-edit="img" title="{{actor.name}}" alt="{{actor.name}}" />
+        <div class="gba-header-fields">
+            <div class="gba-kind">Party</div>
+            <h1 class="gba-name"><input name="name" type="text" value="{{actor.name}}" placeholder="Party Name" aria-label="Party name" /></h1>
+            <div class="gba-stats">
+                <div class="gba-stat">
+                    <label for="{{actor.id}}-party-gold">Gold</label>
+                    <input id="{{actor.id}}-party-gold" type="number" name="system.gold" value="{{actor.system.gold}}" data-dtype="Number" min="0" {{#unless isGM}}disabled{{/unless}} />
+                    <button type="button" class="party-gold-adjust gba-icon-button" data-amount="1" title="Add Gold" aria-label="Add Gold"><i class="fas fa-plus"></i></button>
+                    <button type="button" class="party-gold-adjust gba-icon-button" data-amount="-1" title="Subtract Gold" aria-label="Subtract Gold"><i class="fas fa-minus"></i></button>
                 </div>
-                <div class="resource flexrow">
-                    <div class="resource-label">Members</div>
-                    <div class="resource-value"><span>{{members.length}}</span></div>
-                </div>
-            </div>
-            <div class="party-actions flexrow">
-                <button type="button" class="party-award-xp"><i class="fas fa-star"></i> Award XP to All</button>
-                <button type="button" class="party-starting-package"><i class="fas fa-gift"></i> Grant Starting Package</button>
+                <div class="gba-stat"><span>Members</span><b>{{members.length}}</b></div>
             </div>
         </div>
     </header>
 
-    <section class="sheet-body party-body" data-drop-target="true">
-        <div class="party-drop-hint">
-            <i class="fas fa-users"></i> Drag character actors here to add them to the party.
-        </div>
+    <div class="gba-actions">
+        <button type="button" class="party-award-xp"><i class="fas fa-star"></i> Award XP to All</button>
+        <button type="button" class="party-starting-package"><i class="fas fa-gift"></i> Grant Starting Package</button>
+    </div>
 
-        {{#if members.length}}
-        <div class="party-members-list">
-            {{#each members}}
-            <div class="party-member" data-actor-id="{{this.id}}">
-                <img src="{{this.img}}" width="40" height="40" />
-                <div class="party-member-info">
-                    <div class="party-member-name">{{this.name}}</div>
-                    <div class="party-member-meta">
-                        Lv {{this.level}} (Total {{this.totalLevel}}) · {{this.className}} · HP {{this.hp}}/{{this.hpMax}} · XP {{this.experience}}
+    <section class="sheet-body" data-drop-target="true">
+        <section class="gba-panel party-members">
+            <div class="gba-panel-heading"><h3>Members <small>({{members.length}})</small></h3></div>
+            <p class="gba-hint gba-drop-hint"><i class="fas fa-users"></i> Drag character actors here to add them to the party.</p>
+            {{#if members.length}}
+            <ol class="gba-list">
+                {{#each members}}
+                <li class="gba-row party-member" data-actor-id="{{this.id}}">
+                    <img src="{{this.img}}" alt="" />
+                    <div class="gba-row-info">
+                        <strong>{{this.name}}</strong>
+                        <small>Lv {{this.level}} (Total {{this.totalLevel}}) · {{this.className}} · EXP {{this.experience}}</small>
+                        <div class="party-member-hp"><span>HP {{this.hp}} / {{this.hpMax}}</span><div class="gba-meter" role="meter" aria-label="{{this.name}} HP" aria-valuenow="{{this.hp}}" aria-valuemin="0" aria-valuemax="{{this.hpMax}}"><span style="width: {{this.hpPercent}}%"></span></div></div>
                     </div>
-                </div>
-                <div class="party-member-controls">
-                    <a class="party-member-open" title="Open Sheet"><i class="fas fa-external-link-alt"></i></a>
-                    <a class="party-member-remove" title="Remove from Party"><i class="fas fa-times"></i></a>
-                </div>
-            </div>
-            {{/each}}
-        </div>
-        {{else}}
-        <p class="party-empty">No members. Drag character actors onto this sheet.</p>
-        {{/if}}
+                    <div class="gba-row-controls">
+                        <a class="party-member-open gba-button gba-icon-button" title="Open Sheet" aria-label="Open {{this.name}}'s sheet"><i class="fas fa-external-link-alt"></i></a>
+                        <a class="party-member-remove gba-button gba-icon-button gba-danger" title="Remove from Party" aria-label="Remove {{this.name}} from the party"><i class="fas fa-times"></i></a>
+                    </div>
+                </li>
+                {{/each}}
+            </ol>
+            {{else}}
+            <p class="gba-empty">No members yet.</p>
+            {{/if}}
+        </section>
 
-        <section class="party-convoy">
-            <h3><i class="fas fa-boxes-stacked"></i> Convoy <span>({{convoy.items.length}} items)</span></h3>
-            <p class="party-drop-hint">Drag weapons/items here to store them. Drag carried items to deposit them, or Convoy items to a character sheet to withdraw.</p>
-            <label class="party-convoy-unit-label">Unit <select class="party-convoy-unit">
+        <section class="gba-panel party-convoy">
+            <div class="gba-panel-heading"><h3><i class="fas fa-boxes-stacked"></i> Convoy <small>({{convoy.items.length}} items)</small></h3></div>
+            <p class="gba-hint gba-drop-hint">Drag weapons/items here to store them. Drag carried items to deposit them, or Convoy items to a character sheet to withdraw.</p>
+            <label class="party-convoy-unit-label"><span>Unit</span> <select class="party-convoy-unit">
                 {{#each convoy.units}}<option value="{{this.uuid}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>{{/each}}
                 {{#unless convoy.units.length}}<option value="">No owned Party members</option>{{/unless}}
             </select></label>
-            {{#if convoy.inventory}}<p>{{convoy.selectedName}}: {{convoy.inventory.used}} / {{convoy.inventory.max}} inventory slots</p>{{/if}}
-            {{#if convoy.inCombat}}<p class="party-convoy-status">In combat: units reach the Convoy with Interact, as a Convoy unit or beside one (uses the Major Action). Only the GM can change stock here.</p>{{else}}<p class="party-convoy-status">Outside combat: owned Party members can deposit or withdraw.</p>{{/if}}
-            <p class="party-convoy-status">{{#if convoy.carriers}}Convoy units: {{convoy.carriers}}{{else}}No Convoy unit: tick Convoy on a member's character sheet to allow access in combat.{{/if}}</p>
-            {{#if convoy.reason}}<p class="party-convoy-status">{{convoy.reason}}</p>{{/if}}
-            <div class="party-convoy-actions">
+            {{#if convoy.inventory}}<p class="gba-hint">{{convoy.selectedName}}: {{convoy.inventory.used}} / {{convoy.inventory.max}} inventory slots</p>{{/if}}
+            {{#if convoy.inCombat}}<p class="gba-hint">In combat: units reach the Convoy with Interact, as a Convoy unit or beside one (uses the Major Action). Only the GM can change stock here.</p>{{else}}<p class="gba-hint">Outside combat: owned Party members can deposit or withdraw.</p>{{/if}}
+            <p class="gba-hint">{{#if convoy.carriers}}Convoy units: {{convoy.carriers}}{{else}}No Convoy unit: tick Convoy on a member's character sheet to allow access in combat.{{/if}}</p>
+            {{#if convoy.reason}}<p class="gba-hint">{{convoy.reason}}</p>{{/if}}
+            <div class="gba-actions party-convoy-actions">
                 <button type="button" class="party-convoy-deposit" {{#unless convoy.canDeposit}}disabled{{/unless}}><i class="fas fa-box"></i> Deposit from Unit</button>
                 <button type="button" class="party-convoy-add" title="{{convoy.manageReason}}" {{#unless convoy.canManage}}disabled{{/unless}}><i class="fas fa-plus"></i> Add Item</button>
             </div>
-            <div class="party-convoy-list">
+            <div class="gba-list party-convoy-list">
                 {{#each convoy.items}}
-                <div class="party-convoy-item item" data-convoy-item="{{this.id}}" data-item-id="{{this.id}}" draggable="true">
-                    <img src="{{this.img}}" width="32" height="32" alt="" />
-                    <div class="party-convoy-item-info"><strong>{{this.name}}</strong><span>Qty {{this.quantity}}{{#if this.uses}} · {{this.uses}} uses{{/if}}</span></div>
-                    <button type="button" class="party-convoy-details" title="View item"><i class="fas fa-book-open"></i></button>
-                    <button type="button" class="party-convoy-withdraw" {{#unless this.canWithdraw}}disabled{{/unless}}>Withdraw</button>
-                    <button type="button" class="party-convoy-discard" title="Discard from Convoy" {{#unless ../convoy.canManage}}disabled{{/unless}}><i class="fas fa-trash"></i></button>
+                <div class="gba-row party-convoy-item item" data-convoy-item="{{this.id}}" data-item-id="{{this.id}}" draggable="true">
+                    <img src="{{this.img}}" alt="" />
+                    <div class="gba-row-info"><strong>{{this.name}}</strong><small>Qty {{this.quantity}}{{#if this.uses}} · {{this.uses}} uses{{/if}}</small></div>
+                    <div class="gba-row-controls">
+                        <button type="button" class="party-convoy-details gba-icon-button" title="View item" aria-label="View {{this.name}}"><i class="fas fa-book-open"></i></button>
+                        <button type="button" class="party-convoy-withdraw" {{#unless this.canWithdraw}}disabled{{/unless}}>Withdraw</button>
+                        <button type="button" class="party-convoy-discard gba-icon-button gba-danger" title="Discard from Convoy" aria-label="Discard {{this.name}}" {{#unless ../convoy.canManage}}disabled{{/unless}}><i class="fas fa-trash"></i></button>
+                    </div>
                 </div>
-                {{else}}<p class="party-empty">Convoy is empty.</p>{{/each}}
+                {{else}}<p class="gba-empty">Convoy is empty.</p>{{/each}}
             </div>
         </section>
 
-        <div class="party-notes">
-            <h3>Notes</h3>
-            <textarea name="system.notes" rows="6">{{actor.system.notes}}</textarea>
-        </div>
+        <section class="gba-panel party-notes">
+            <div class="gba-panel-heading"><h3><label for="{{actor.id}}-party-notes">Notes</label></h3></div>
+            <textarea id="{{actor.id}}-party-notes" name="system.notes" rows="6">{{actor.system.notes}}</textarea>
+        </section>
     </section>
 </form>

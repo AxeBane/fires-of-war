@@ -41,7 +41,7 @@
             </div>
             {{/unless}}{{/unless}}{{/unless}}{{/unless}}{{/unless}}
 
-            <div class="form-group feue-bonus-section collapsed">
+            <div class="form-group feue-bonus-section collapsed" data-bonus-section="attributes">
                 <div class="bonus-header">
                     <h3>Stat Bonuses</h3>
                     <a class="bonus-toggle"><i class="fas fa-chevron-down"></i> Show All</a>
@@ -71,7 +71,7 @@
                     <div class="form-group {{#unless item.system.bonuses.combat.attackSpeed}}bonus-zero{{/unless}}"><label>Attack Speed</label><input type="number" data-dtype="Number" name="system.bonuses.combat.attackSpeed" value="{{item.system.bonuses.combat.attackSpeed}}" placeholder="0" /></div>
                 </div>
             </div>
-            <div class="form-group feue-bonus-section collapsed">
+            <div class="form-group feue-bonus-section collapsed" data-bonus-section="maximums">
                 <div class="bonus-header">
                     <h3>Stat Cap Bonuses</h3>
                     <a class="bonus-toggle"><i class="fas fa-chevron-down"></i> Show All</a>
@@ -91,7 +91,7 @@
                     <div class="form-group {{#unless item.system.bonuses.maximums.build}}bonus-zero{{/unless}}"><label>BLD</label><input type="number" data-dtype="Number" name="system.bonuses.maximums.build" value="{{item.system.bonuses.maximums.build}}" placeholder="0" /></div>
                 </div>
             </div>
-            <div class="form-group feue-bonus-section collapsed">
+            <div class="form-group feue-bonus-section collapsed" data-bonus-section="growthRates">
                 <div class="bonus-header">
                     <h3>Growth Rate Bonuses</h3>
                     <a class="bonus-toggle"><i class="fas fa-chevron-down"></i> Show All</a>
