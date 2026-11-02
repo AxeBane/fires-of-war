@@ -530,7 +530,8 @@ export function registerTacticalForecast() {
         controller.queueRefresh();
     });
     for (const hook of ["canvasReady", "controlToken", "activateCanvasLayer", "drawToken", "updateToken", "createToken", "deleteToken",
-        "createWall", "updateWall", "deleteWall", "createRegion", "updateRegion", "deleteRegion", "createTile", "updateTile", "deleteTile", "sightRefresh", "updateScene", "updateCombat", "updateCombatant"]) {
+        "createWall", "updateWall", "deleteWall", "createRegion", "updateRegion", "deleteRegion", "createRegionBehavior", "updateRegionBehavior", "deleteRegionBehavior",
+        "createTile", "updateTile", "deleteTile", "sightRefresh", "updateScene", "updateCombat", "updateCombatant"]) {
         Hooks.on(hook, () => {
             if (controller.planning && !controller.planning.controlled) controller.planning = null;
             controller.queueRefresh();

@@ -55,6 +55,7 @@ export function createMovementContext(token, board, {combat = null, origin: from
         (!c.sceneId || c.sceneId === doc.parent?.id));
     const history = inCombat ? doc.movementHistory ?? [] : [];
     const measure = points => {
+        points = [...history, ...(token.createTerrainMovementPath?.(points, {preview: true}) ?? points)];
         if (token.measureMovementPath) return token.measureMovementPath(points, {preview: true}).cost / (grid.distance || 1);
         if (doc.measureMovementPath) return doc.measureMovementPath(points).cost / (grid.distance || 1);
         if (grid.measurePath) return grid.measurePath(points.map(point => ({x: point.x + token.w / 2, y: point.y + token.h / 2}))).distance / (grid.distance || 1);
@@ -73,7 +74,7 @@ export function createMovementContext(token, board, {combat = null, origin: from
         return terrainCache.get(key);
     };
     const pastCells = history.length > 1 ? nativeCellPath(doc, history, grid) : [];
-    const spent = history.length > 1 ? Math.max(0, measure(history) + terrainRouteState(pastCells, terrain, traits).extra) : 0;
+    const spent = history.length > 1 ? Math.max(0, measure([]) + terrainRouteState(pastCells, terrain, traits).extra) : 0;
     const actionReason = unitActionReason(token, {combat, movement: true});
     const unrestricted = !inCombat;
     // Open Field: +3 Move when the phase's movement starts on terrain without a movement penalty.
@@ -119,7 +120,7 @@ export function createMovementContext(token, board, {combat = null, origin: from
     const costRoute = cells => {
         if (unrestricted) return Math.max(0, cells.length - 1);
         const state = terrainRouteState(fullCells(cells), terrain, traits);
-        return state.valid ? Math.max(0, measure([...history, ...cells.map(waypoint)]) + state.extra) - spent : Infinity;
+        return state.valid ? Math.max(0, measure(cells.map(waypoint)) + state.extra) - spent : Infinity;
     };
     const validate = cells => {
         if (actionReason && cells.length > 1) return false;
