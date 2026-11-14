@@ -78,6 +78,32 @@
 }
 .gba-character input[type="number"] { text-align: center; }
 .gba-character input:disabled, .gba-character select:disabled { opacity: 1; color: var(--gba-blue); }
+.feue.character .gba-character input[type="checkbox"] {
+    appearance: none;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--gba-cream);
+    border-radius: 0;
+    background: #172b60;
+    box-shadow: inset 1px 1px 0 #0c1739, 1px 1px 0 var(--gba-ink);
+}
+.feue.character .gba-character input[type="checkbox"]::before,
+.feue.character .gba-character input[type="checkbox"]::after { content: none; }
+.feue.character .gba-character input[type="checkbox"]:checked::after {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--gba-gold);
+    clip-path: polygon(0 45%, 18% 28%, 40% 50%, 82% 5%, 100% 22%, 40% 90%);
+}
+.feue.character .gba-character input[type="checkbox"]:hover:not(:disabled) { background: #233d79; }
+.feue.character .gba-character input[type="checkbox"]:disabled { opacity: .55; cursor: default; }
 .gba-character :is(button, .item-control) {
     width: auto;
     min-height: 28px;
@@ -328,6 +354,13 @@
 .gba-character :is(.movement, .details) .resource :is(input, select) { width: 64px; height: 28px; flex: 0 0 64px; font-size: 21px; background: #172b60; color: var(--gba-blue); padding: 1px 4px; }
 .gba-character .details .resource select { width: auto; flex: 1; max-width: 140px; }
 .gba-character .details .resource > label { display: none; }
+
+.gba-character .hint {
+    flex: 0 0 auto;
+    color: var(--gba-muted);
+    font: 13px/1.4 var(--gba-font-readable);
+    text-shadow: none;
+}
 
 /* Inventory and abilities use readable rows, with all original action hooks. */
 .gba-character .combat-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -629,8 +662,7 @@
     text-align: left;
 }
 .feue.sheet.item .gba-item .form-row > .form-group { flex-basis: 70px; }
-/* A short input beside a taller field (Range next to Uses) keeps its own height. */
-.feue.sheet.item .gba-item .form-group > :is(input, select) { flex: 0 0 auto; }
+.feue.sheet.item .gba-item .form-group > :is(label, input, select) { flex: 0 0 auto; }
 .feue.sheet.item .gba-item :is(label, legend) {
     color: var(--gba-gold);
     font: 20px/1.2 var(--feue-font-body);

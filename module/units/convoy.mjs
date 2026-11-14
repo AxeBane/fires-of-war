@@ -215,6 +215,6 @@ export function registerConvoy() {
     Hooks.on("preUpdateItem", guardConvoyItem);
     Hooks.on("preDeleteItem", (item, options) => guardConvoyItem(item, {}, options));
     for (const hook of ["updateCombat", "createCombatant", "deleteCombatant", "updateCombatant", "deleteCombat", "createItem", "updateItem", "deleteItem", "updateActor"]) Hooks.on(hook, () => {
-        for (const actor of game.actors ?? []) if (actor.type === "party" && actor.sheet?.rendered) actor.sheet.render(false);
+        for (const actor of game.actors ?? []) if (actor.type === "party" && actor.sheet?.rendered) actor.sheet.render();
     });
 }

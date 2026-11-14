@@ -1,3 +1,4 @@
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {skillName, hasSkill, TOME_TYPES} from "./skill-automation.mjs";
 import {assertUnitAction, actorActionToken, adjacentAllies, unitCombatant, completeMajorAction, relaySheetAction} from "../units/unit-actions.mjs";
 import {addTimedEffect, healActor, inflictStatus, displaceTokens} from "../combat/combat-effects.mjs";
@@ -89,16 +90,49 @@ function chooseAndUse(sheet, item, rule, source, options, targets) {
         const target = targets.find(t => t.id === html.find("#skill-target").val());
         html.find("#skill-choice").html(stealable(target?.actor).map(i => option(i.id, i.name)).join("") || option("", "Nothing to steal"));
     };
-    new Dialog({title: `${item.name}`, content: `<form>${content}</form>`,
-        buttons: {use: {label: "Use", callback: async html => {
-            const targetToken = targets.find(t => t.id === html.find("#skill-target").val());
-            const choice = rule.kind === "steal" ? {itemId: html.find("#skill-choice").val()} :
-                rule.kind === "transmute" ? {from: html.find("#skill-from").val(), to: html.find("#skill-to").val(), amount: Number(html.find("#skill-amount").val()) || 1} : undefined;
-            try { await sheet._useSkill(item, {...options, actionLocked: false, sourceToken: source, targetToken, choice}); }
-            catch (error) { ui.notifications.error(error.message); }
-        }}, cancel: {label: "Cancel"}},
-        render: html => { if (rule.kind === "steal") { fillItems(html); html.find("#skill-target").change(() => fillItems(html)); } }
-    }).render(true);
+    new FiresOfWarDialog({
+        window: { title: `${item.name}` },
+        content: `<div>${content}</div>`,
+        buttons: [
+            {
+                action: "use",
+                label: "Use",
+                callback: async (event, button, dialog) => {
+                    const html = $(dialog.element);
+                    const targetToken = targets.find(t => t.id === html.find("#skill-target").val());
+                    const choice =
+                        rule.kind === "steal"
+                            ? { itemId: html.find("#skill-choice").val() }
+                            : rule.kind === "transmute"
+                              ? {
+                                    from: html.find("#skill-from").val(),
+                                    to: html.find("#skill-to").val(),
+                                    amount: Number(html.find("#skill-amount").val()) || 1
+                                }
+                              : undefined;
+                    try {
+                        await sheet._useSkill(item, {
+                            ...options,
+                            actionLocked: false,
+                            sourceToken: source,
+                            targetToken,
+                            choice
+                        });
+                    } catch (error) {
+                        ui.notifications.error(error.message);
+                    }
+                }
+            },
+            { action: "cancel", label: "Cancel" }
+        ],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
+            if (rule.kind === "steal") {
+                fillItems(html);
+                html.find("#skill-target").change(() => fillItems(html));
+            }
+        }
+    }).render({force: true});
 }
 
 export async function useActiveSkill(sheet, item, options = {}) {

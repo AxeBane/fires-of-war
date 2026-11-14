@@ -1,7 +1,7 @@
 <form class="feue gba-character {{cssClass}}" autocomplete="off">
     <aside class="unit-sidebar" aria-label="Character overview">
         <div class="unit-portrait-frame">
-            <img class="profile-img" src="{{actor.img}}" data-edit="img" title="Change {{actor.name}}'s portrait" alt="{{actor.name}}" />
+            <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editImage" title="Change {{actor.name}}'s portrait" alt="{{actor.name}}" />
         </div>
         <h1 class="unit-name"><input name="name" type="text" value="{{actor.name}}" placeholder="Character Name" aria-label="Character name" /></h1>
         <div class="unit-identity">
@@ -27,7 +27,7 @@
     <section class="sheet-body" data-drop-target="true">
 
         {{!-- Main Tab --}}
-        <div class="tab main" data-group="primary" data-tab="main" data-drop-target="true">
+        <div class="tab main {{tabs.main.cssClass}}" data-group="primary" data-tab="main" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Personal data</h2><span class="gba-page-number">1 <span>/ 6</span></span>
@@ -195,7 +195,7 @@
         </div>
 
         {{!-- Combat Tab --}}
-        <div class="tab combat" data-group="primary" data-tab="combat" data-drop-target="true">
+        <div class="tab combat {{tabs.combat.cssClass}}" data-group="primary" data-tab="combat" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Equipment</h2><span class="gba-page-number">2 <span>/ 6</span></span>
@@ -291,7 +291,7 @@
         </div>
 
         {{!-- Inventory Tab --}}
-        <div class="tab inventory" data-group="primary" data-tab="inventory" data-drop-target="true">
+        <div class="tab inventory {{tabs.inventory.cssClass}}" data-group="primary" data-tab="inventory" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Items</h2><span class="gba-page-number">3 <span>/ 6</span></span>
@@ -326,7 +326,7 @@
             </div>
         </div>
 
-        <div class="tab ranks" data-group="primary" data-tab="ranks" data-drop-target="true">
+        <div class="tab ranks {{tabs.ranks.cssClass}}" data-group="primary" data-tab="ranks" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Weapon & support</h2><span class="gba-page-number">4 <span>/ 6</span></span>
@@ -441,7 +441,7 @@
         </div>
 
         {{!-- Skills & Spells Tab --}}
-        <div class="tab skills" data-group="primary" data-tab="skills" data-drop-target="true">
+        <div class="tab skills {{tabs.skills.cssClass}}" data-group="primary" data-tab="skills" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Class & abilities</h2><span class="gba-page-number">5 <span>/ 6</span></span>
@@ -522,7 +522,7 @@
         </div>
 
         {{!-- Biography Tab --}}
-        <div class="tab biography" data-group="primary" data-tab="biography" data-drop-target="true">
+        <div class="tab biography {{tabs.biography.cssClass}}" data-group="primary" data-tab="biography" data-drop-target="true">
             <header class="gba-page-header">
                 <button type="button" class="sheet-page-step" data-page-step="-1" aria-label="Previous page" title="Previous page">◀</button>
                 <h2>Roleplay</h2><span class="gba-page-number">6 <span>/ 6</span></span>
@@ -663,11 +663,11 @@
         </div>
     </section>
     <nav class="sheet-tabs tabs" data-group="primary" aria-label="Character pages">
-        <a class="item" data-tab="main" role="button" tabindex="0" title="Personal data"><span class="tab-number">01</span>Stats</a>
-        <a class="item" data-tab="combat" role="button" tabindex="0" title="Equipment"><span class="tab-number">02</span>Equipment</a>
-        <a class="item" data-tab="inventory" role="button" tabindex="0" title="Items"><span class="tab-number">03</span>Items</a>
-        <a class="item" data-tab="ranks" role="button" tabindex="0" title="Weapon & support"><span class="tab-number">04</span>Ranks</a>
-        <a class="item" data-tab="skills" role="button" tabindex="0" title="Class & abilities"><span class="tab-number">05</span>Abilities</a>
-        <a class="item" data-tab="biography" role="button" tabindex="0" title="Roleplay"><span class="tab-number">06</span>Roleplay</a>
+        <a class="item {{tabs.main.cssClass}}" data-action="tab" data-group="primary" data-tab="main" role="button" tabindex="0" title="Personal data"><span class="tab-number">01</span>Stats</a>
+        <a class="item {{tabs.combat.cssClass}}" data-action="tab" data-group="primary" data-tab="combat" role="button" tabindex="0" title="Equipment"><span class="tab-number">02</span>Equipment</a>
+        <a class="item {{tabs.inventory.cssClass}}" data-action="tab" data-group="primary" data-tab="inventory" role="button" tabindex="0" title="Items"><span class="tab-number">03</span>Items</a>
+        <a class="item {{tabs.ranks.cssClass}}" data-action="tab" data-group="primary" data-tab="ranks" role="button" tabindex="0" title="Weapon & support"><span class="tab-number">04</span>Ranks</a>
+        <a class="item {{tabs.skills.cssClass}}" data-action="tab" data-group="primary" data-tab="skills" role="button" tabindex="0" title="Class & abilities"><span class="tab-number">05</span>Abilities</a>
+        <a class="item {{tabs.biography.cssClass}}" data-action="tab" data-group="primary" data-tab="biography" role="button" tabindex="0" title="Roleplay"><span class="tab-number">06</span>Roleplay</a>
     </nav>
 </form>

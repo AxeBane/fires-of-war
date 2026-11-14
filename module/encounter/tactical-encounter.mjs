@@ -1,3 +1,4 @@
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {SYSTEM_ID, tokenTerrain, terrainHP, refreshTerrainStats} from "../map/terrain.mjs";
 import {DEFAULT_ALLEGIANCES, OBJECTIVES, allegiances, allegianceOf, isSlain, hasEscaped, objectiveScene, escapeUnitIds, phaseStarts, evaluateObjective} from "./encounter-rules.mjs";
 import {esc, rootElement, registerTerrainUI} from "../map/terrain-ui.mjs";
@@ -9,23 +10,6 @@ import {aiBehaviorOptions, aiBehaviorHints, aiSettings} from "../ai/ai-planner.m
 const phaseUnits = (combat, unit = combat.combatant) => unit ? Array.from(combat.combatants).filter(c => !hasEscaped(c.token, combat) && allegianceOf(c, combat).id === allegianceOf(unit, combat).id) : [];
 const activeGM = () => game.user.isActiveGM ?? (game.user.id === game.users.find(u => u.active && u.isGM)?.id);
 const phaseStamp = (combat, round = combat.round, unit = combat.combatant) => `${round}:${unit ? allegianceOf(unit, combat).id : ""}`;
-
-/** Foundry's legacy Dialog closes synchronously; keep validation and async saves inside the dialog. */
-export function createEncounterDialogClass(Parent) {
-    return class EncounterDialog extends Parent {
-        async submit(button, event) {
-            if (this._feueSaving) return;
-            this._feueSaving = true;
-            try {
-                const html = this.options.jQuery ? this.element : this.element[0];
-                if (await button.callback?.call(this, html, event) !== false) await this.close();
-            } catch (error) {
-                console.error("FEUE | Encounter setup failed", error);
-                ui.notifications.error(`Could not save encounter: ${error.message}`);
-            } finally { this._feueSaving = false; }
-        }
-    };
-}
 
 /** Initiative mirrors the phase order (Player 1, Neutral 2, Enemy 3, Other 4, then custom allegiances),
  * so trackers and modules show a fixed value instead of offering a roll. */
@@ -201,95 +185,229 @@ export function openEncounterSetup(combat = ui.combat?.viewed ?? game.combat) {
     if (!combat) return ui.notifications.warn("Create an encounter first.");
     const objective = combat.flags?.[SYSTEM_ID]?.objective ?? {};
     const status = evaluateObjective(combat);
-    if (!game.user.isGM) return new Dialog({title: "Encounter Objectives", content: `<p><b>${esc(OBJECTIVES[objective.type] ?? "No objective set")}</b></p><p>${esc(status.text)}</p>${status.complete ? "<p>Victory!</p>" : ""}`, buttons: {close: {label: "Close"}}}).render(true);
+    if (!game.user.isGM) return new FiresOfWarDialog({
+        window: { title: "Encounter Objectives" },
+        content: `<p><b>${esc(OBJECTIVES[objective.type] ?? "No objective set")}</b></p><p>${esc(status.text)}</p>${status.complete ? "<p>Victory!</p>" : ""}`,
+        buttons: [{ action: "close", label: "Close" }]
+    }).render({force: true});
     const groups = allegiances(combat), units = Array.from(combat.combatants), ai = aiSettings(combat);
-    const EncounterDialog = createEncounterDialogClass(Dialog);
-    new EncounterDialog({title: "Objectives & Allegiance Phases", content: `<div class="feue-encounter-setup">
-        <h3>Encounter Objective</h3><div class="form-group"><label>Objective</label><select class="feue-objective-type"><option value="">None</option>${Object.entries(OBJECTIVES).map(([key, name]) => `<option value="${key}" ${objective.type === key ? "selected" : ""}>${name}</option>`).join("")}</select></div>
-        <div class="feue-survive-options"><label>Full rounds to survive <input type="number" class="feue-objective-rounds" value="${Number(objective.rounds) || 6}" min="1" step="1"></label><p>Counts full rounds from ${objective.type === "survive" ? `round ${Number(objective.startRound) || 1}` : "the current round (or round 1 before starting)"}.</p></div>
-        <div class="feue-boss-options"><p>Boss units (all selected units must reach 0 HP):</p>${units.map(unit => `<label class="feue-boss-choice"><input type="checkbox" value="${esc(unit.id)}" ${(objective.bosses ?? []).includes(unit.id) ? "checked" : ""}> ${esc(unit.name)}</label>`).join("") || "<p>Add units to the encounter to choose bosses.</p>"}</div>
-        <div class="feue-tile-objective-options"><label>Objective allegiance <select class="feue-objective-allegiance" data-selected="${esc(objective.allegiance || "player")}"></select></label><p>Seize requires every interactable Seize Tile on this scene. Escape accepts any interactable Escape Tile.</p></div>
-        <div class="feue-escape-options"><label>Required escape <select class="feue-escape-mode"><option value="all" ${objective.escapeMode !== "selected" ? "selected" : ""}>All units of the objective allegiance</option><option value="selected" ${objective.escapeMode === "selected" ? "selected" : ""}>One selected unit</option></select></label><label class="feue-escape-unit-choice">Selected unit <select class="feue-escape-unit"><option value="">Choose a unit</option>${units.map(unit => `<option value="${esc(unit.id)}" ${objective.escapeUnit === unit.id ? "selected" : ""}>${esc(unit.name)}</option>`).join("")}</select></label><p>Units escape automatically on reaching an exit, including any unit they are rescuing. Slain or deleted required units do not count as escaped.</p></div>
-        <p class="feue-objective-preview">${esc(status.text)}</p>
-        <h3>Allegiances / Phase Order</h3><p>Order is top to bottom. Matching dispositions use the first match; override individual units below to split factions sharing a disposition.</p><div class="feue-factions">${groups.map(factionRow).join("")}</div><button type="button" class="feue-add-faction">Add custom allegiance</button>
-        <h3>Combat AI</h3><p>Tick <b>AI</b> on an allegiance to let the computer play its phase, for solo play or a GM who joins in as a player. It runs on the active GM's client, which must be viewing this scene. Player and Neutral units are allies; every other allegiance fights everyone else.</p>
-        <div class="form-group"><label>Default behavior</label><select class="feue-ai-behavior">${aiBehaviorOptions(ai.behavior, {inherit: false})}</select></div>
-        <p class="feue-ai-hints">${aiBehaviorHints()}</p>
-        <label class="feue-ai-autoend"><input type="checkbox" ${ai.autoEnd ? "checked" : ""}> End the other phases automatically once every unit has acted</label>
-        <h3>Unit Allegiances</h3><p>Each unit's allegiance and, when that allegiance is AI-controlled, its behavior.</p><div class="feue-unit-allegiances">${units.map(unit => `<label>${esc(unit.name)}<span class="feue-unit-selects"><select data-unit="${esc(unit.id)}" data-selected="${esc(unit.flags?.[SYSTEM_ID]?.allegiance ?? "")}"></select><select data-ai-unit="${esc(unit.id)}" aria-label="${esc(unit.name)} AI behavior" ${unit.token ? "" : "disabled"}>${aiBehaviorOptions(unit.token?.flags?.[SYSTEM_ID]?.aiBehavior ?? "")}</select></span></label>`).join("")}</div></div>`,
-        buttons: {save: {label: "Save Encounter", callback: async html => {
-            const root = rootElement(html);
-            const factions = Array.from(root.querySelectorAll(".feue-faction-row")).map(row => ({id: row.dataset.id, name: row.querySelector("input").value.trim(), disposition: row.querySelector("select").value === "" ? null : Number(row.querySelector("select").value),
-                ai: !!row.querySelector(".feue-faction-ai input")?.checked}));
-            if (factions.some(g => !g.name)) return ui.notifications.warn("Every allegiance needs a name."), false;
-            const type = root.querySelector(".feue-objective-type").value;
-            const rounds = Number(root.querySelector(".feue-objective-rounds").value);
-            const bosses = Array.from(root.querySelectorAll(".feue-boss-choice input:checked")).map(input => input.value);
-            if (type === "survive" && (!Number.isSafeInteger(rounds) || rounds < 1)) return ui.notifications.warn("Use a positive whole number of rounds."), false;
-            if (type === "boss" && !bosses.length) return ui.notifications.warn("Choose at least one boss."), false;
-            const allegiance = root.querySelector(".feue-objective-allegiance").value;
-            const escapeMode = root.querySelector(".feue-escape-mode").value, escapeUnit = root.querySelector(".feue-escape-unit").value;
-            const tiles = [...new Set([...(objective.type === type ? objective.tiles ?? [] : []), ...Array.from(objectiveScene(combat)?.tiles ?? []).filter(tile => tile.flags?.[SYSTEM_ID]?.interactable && tile.flags[SYSTEM_ID].interactionType === type).map(tile => tile.id)])];
-            if (["seize", "escape"].includes(type) && !tiles.length) return ui.notifications.warn(`Add at least one interactable ${type === "seize" ? "Seize" : "Escape"} Tile to the encounter scene.`), false;
-            if (type === "escape" && escapeMode === "selected" && !units.some(unit => unit.id === escapeUnit)) return ui.notifications.warn("Choose the unit that must escape."), false;
-            const currentId = combat.combatant?.id;
-            const updates = Array.from(root.querySelectorAll("[data-unit]")).map(select => ({_id: select.dataset.unit, [`flags.${SYSTEM_ID}.allegiance`]: select.value}));
-            const editedCombat = {flags: {[SYSTEM_ID]: {allegiances: factions}}, combatants: units.map(unit => ({id: unit.id, token: unit.token,
-                flags: {[SYSTEM_ID]: {allegiance: updates.find(update => update._id === unit.id)?.[`flags.${SYSTEM_ID}.allegiance`]}}}))};
-            const escapeUnits = escapeUnitIds(editedCombat, {escapeMode, escapeUnit, allegiance,
-                escapeUnits: objective.type === "escape" && objective.escapeMode !== "selected" && escapeMode === "all" && (objective.allegiance || "player") === allegiance ? objective.escapeUnits ?? [] : []});
-            if (type === "escape" && !escapeUnits.length) return ui.notifications.warn("Add a unit of the objective allegiance to the encounter."), false;
-            if (updates.length) await combat.updateEmbeddedDocuments("Combatant", updates, {turnEvents: false});
-            // AI behavior lives on the token, so it stays with the unit on the map.
-            const behaviors = new Map();
-            for (const select of root.querySelectorAll("[data-ai-unit]")) {
-                const token = units.find(unit => unit.id === select.dataset.aiUnit)?.token;
-                if (!token?.parent || (token.flags?.[SYSTEM_ID]?.aiBehavior ?? "") === select.value) continue;
-                if (!behaviors.has(token.parent)) behaviors.set(token.parent, []);
-                behaviors.get(token.parent).push({_id: token.id, [`flags.${SYSTEM_ID}.aiBehavior`]: select.value});
-            }
-            for (const [scene, tokenUpdates] of behaviors) await scene.updateEmbeddedDocuments("Token", tokenUpdates);
-            await combat.update({[`flags.${SYSTEM_ID}.allegiances`]: factions, [`flags.${SYSTEM_ID}.ai`]: {behavior: root.querySelector(".feue-ai-behavior").value, autoEnd: root.querySelector(".feue-ai-autoend input").checked},
-                [`flags.${SYSTEM_ID}.objective`]: {type, rounds, bosses, tiles, allegiance, escapeMode, escapeUnit, escapeUnits,
-                startRound: objective.type === "survive" && type === "survive" ? objective.startRound ?? 1 : Math.max(1, combat.round)},
-                ...(objective.type !== type ? {[`flags.${SYSTEM_ID}.eventProgress`]: {seized: [], escaped: []}} : {})}, {turnEvents: false});
-            combat.setupTurns();
-            if (currentId) await combat.update({turn: combat.turns.findIndex(unit => unit.id === currentId)}, {turnEvents: false});
-            await checkEncounterObjective(combat);
-            ui.combat.render();
-        }}, cancel: {label: "Cancel"}}, default: "save",
-        render: html => {
-            const root = rootElement(html), container = root.querySelector(".feue-factions");
+    new FiresOfWarDialog({
+        window: { title: "Objectives & Allegiance Phases" },
+        position: { width: 620 },
+        content: `<div class="feue-encounter-setup">
+            <h3>Encounter Objective</h3><div class="form-group"><label>Objective</label><select class="feue-objective-type"><option value="">None</option>${Object.entries(
+                OBJECTIVES
+            )
+                .map(([key, name]) => `<option value="${key}" ${objective.type === key ? "selected" : ""}>${name}</option>`)
+                .join("")}</select></div>
+            <div class="feue-survive-options"><label>Full rounds to survive <input type="number" class="feue-objective-rounds" value="${Number(objective.rounds) || 6}" min="1" step="1"></label><p>Counts full rounds from ${objective.type === "survive" ? `round ${Number(objective.startRound) || 1}` : "the current round (or round 1 before starting)"}.</p></div>
+            <div class="feue-boss-options"><p>Boss units (all selected units must reach 0 HP):</p>${units.map(unit => `<label class="feue-boss-choice"><input type="checkbox" value="${esc(unit.id)}" ${(objective.bosses ?? []).includes(unit.id) ? "checked" : ""}> ${esc(unit.name)}</label>`).join("") || "<p>Add units to the encounter to choose bosses.</p>"}</div>
+            <div class="feue-tile-objective-options"><label>Objective allegiance <select class="feue-objective-allegiance" data-selected="${esc(objective.allegiance || "player")}"></select></label><p>Seize requires every interactable Seize Tile on this scene. Escape accepts any interactable Escape Tile.</p></div>
+            <div class="feue-escape-options"><label>Required escape <select class="feue-escape-mode"><option value="all" ${objective.escapeMode !== "selected" ? "selected" : ""}>All units of the objective allegiance</option><option value="selected" ${objective.escapeMode === "selected" ? "selected" : ""}>One selected unit</option></select></label><label class="feue-escape-unit-choice">Selected unit <select class="feue-escape-unit"><option value="">Choose a unit</option>${units.map(unit => `<option value="${esc(unit.id)}" ${objective.escapeUnit === unit.id ? "selected" : ""}>${esc(unit.name)}</option>`).join("")}</select></label><p>Units escape automatically on reaching an exit, including any unit they are rescuing. Slain or deleted required units do not count as escaped.</p></div>
+            <p class="feue-objective-preview">${esc(status.text)}</p>
+            <h3>Allegiances / Phase Order</h3><p>Order is top to bottom. Matching dispositions use the first match; override individual units below to split factions sharing a disposition.</p><div class="feue-factions">${groups.map(factionRow).join("")}</div><button type="button" class="feue-add-faction">Add custom allegiance</button>
+            <h3>Combat AI</h3><p>Tick <b>AI</b> on an allegiance to let the computer play its phase, for solo play or a GM who joins in as a player. It runs on the active GM's client, which must be viewing this scene. Player and Neutral units are allies; every other allegiance fights everyone else.</p>
+            <div class="form-group"><label>Default behavior</label><select class="feue-ai-behavior">${aiBehaviorOptions(ai.behavior, { inherit: false })}</select></div>
+            <p class="feue-ai-hints">${aiBehaviorHints()}</p>
+            <label class="feue-ai-autoend"><input type="checkbox" ${ai.autoEnd ? "checked" : ""}> End the other phases automatically once every unit has acted</label>
+            <h3>Unit Allegiances</h3><p>Each unit's allegiance and, when that allegiance is AI-controlled, its behavior.</p><div class="feue-unit-allegiances">${units.map(unit => `<label>${esc(unit.name)}<span class="feue-unit-selects"><select data-unit="${esc(unit.id)}" data-selected="${esc(unit.flags?.[SYSTEM_ID]?.allegiance ?? "")}"></select><select data-ai-unit="${esc(unit.id)}" aria-label="${esc(unit.name)} AI behavior" ${unit.token ? "" : "disabled"}>${aiBehaviorOptions(unit.token?.flags?.[SYSTEM_ID]?.aiBehavior ?? "")}</select></span></label>`).join("")}</div></div>`,
+        buttons: [
+            {
+                action: "save",
+                default: true,
+                label: "Save Encounter",
+                callback: async (event, button, dialog) => {
+                    const html = $(dialog.element);
+                    const root = rootElement(html);
+                    const factions = Array.from(root.querySelectorAll(".feue-faction-row")).map(row => ({
+                        id: row.dataset.id,
+                        name: row.querySelector("input").value.trim(),
+                        disposition:
+                            row.querySelector("select").value === "" ? null : Number(row.querySelector("select").value),
+                        ai: !!row.querySelector(".feue-faction-ai input")?.checked
+                    }));
+                    if (factions.some(g => !g.name))
+                        return (ui.notifications.warn("Every allegiance needs a name."), FiresOfWarDialog.KEEP_OPEN);
+                    const type = root.querySelector(".feue-objective-type").value;
+                    const rounds = Number(root.querySelector(".feue-objective-rounds").value);
+                    const bosses = Array.from(root.querySelectorAll(".feue-boss-choice input:checked")).map(
+                        input => input.value
+                    );
+                    if (type === "survive" && (!Number.isSafeInteger(rounds) || rounds < 1))
+                        return (
+                            ui.notifications.warn("Use a positive whole number of rounds."),
+                            FiresOfWarDialog.KEEP_OPEN
+                        );
+                    if (type === "boss" && !bosses.length)
+                        return (ui.notifications.warn("Choose at least one boss."), FiresOfWarDialog.KEEP_OPEN);
+                    const allegiance = root.querySelector(".feue-objective-allegiance").value;
+                    const escapeMode = root.querySelector(".feue-escape-mode").value,
+                        escapeUnit = root.querySelector(".feue-escape-unit").value;
+                    const tiles = [
+                        ...new Set([
+                            ...(objective.type === type ? (objective.tiles ?? []) : []),
+                            ...Array.from(objectiveScene(combat)?.tiles ?? [])
+                                .filter(
+                                    tile =>
+                                        tile.flags?.[SYSTEM_ID]?.interactable &&
+                                        tile.flags[SYSTEM_ID].interactionType === type
+                                )
+                                .map(tile => tile.id)
+                        ])
+                    ];
+                    if (["seize", "escape"].includes(type) && !tiles.length)
+                        return (
+                            ui.notifications.warn(
+                                `Add at least one interactable ${type === "seize" ? "Seize" : "Escape"} Tile to the encounter scene.`
+                            ),
+                            FiresOfWarDialog.KEEP_OPEN
+                        );
+                    if (type === "escape" && escapeMode === "selected" && !units.some(unit => unit.id === escapeUnit))
+                        return (ui.notifications.warn("Choose the unit that must escape."), FiresOfWarDialog.KEEP_OPEN);
+                    const currentId = combat.combatant?.id;
+                    const updates = Array.from(root.querySelectorAll("[data-unit]")).map(select => ({
+                        _id: select.dataset.unit,
+                        [`flags.${SYSTEM_ID}.allegiance`]: select.value
+                    }));
+                    const editedCombat = {
+                        flags: { [SYSTEM_ID]: { allegiances: factions } },
+                        combatants: units.map(unit => ({
+                            id: unit.id,
+                            token: unit.token,
+                            flags: {
+                                [SYSTEM_ID]: {
+                                    allegiance: updates.find(update => update._id === unit.id)?.[
+                                        `flags.${SYSTEM_ID}.allegiance`
+                                    ]
+                                }
+                            }
+                        }))
+                    };
+                    const escapeUnits = escapeUnitIds(editedCombat, {
+                        escapeMode,
+                        escapeUnit,
+                        allegiance,
+                        escapeUnits:
+                            objective.type === "escape" &&
+                            objective.escapeMode !== "selected" &&
+                            escapeMode === "all" &&
+                            (objective.allegiance || "player") === allegiance
+                                ? (objective.escapeUnits ?? [])
+                                : []
+                    });
+                    if (type === "escape" && !escapeUnits.length)
+                        return (
+                            ui.notifications.warn("Add a unit of the objective allegiance to the encounter."),
+                            FiresOfWarDialog.KEEP_OPEN
+                        );
+                    if (updates.length) await combat.updateEmbeddedDocuments("Combatant", updates, { turnEvents: false });
+                    // AI behavior lives on the token, so it stays with the unit on the map.
+                    const behaviors = new Map();
+                    for (const select of root.querySelectorAll("[data-ai-unit]")) {
+                        const token = units.find(unit => unit.id === select.dataset.aiUnit)?.token;
+                        if (!token?.parent || (token.flags?.[SYSTEM_ID]?.aiBehavior ?? "") === select.value) continue;
+                        if (!behaviors.has(token.parent)) behaviors.set(token.parent, []);
+                        behaviors
+                            .get(token.parent)
+                            .push({ _id: token.id, [`flags.${SYSTEM_ID}.aiBehavior`]: select.value });
+                    }
+                    for (const [scene, tokenUpdates] of behaviors)
+                        await scene.updateEmbeddedDocuments("Token", tokenUpdates);
+                    await combat.update(
+                        {
+                            [`flags.${SYSTEM_ID}.allegiances`]: factions,
+                            [`flags.${SYSTEM_ID}.ai`]: {
+                                behavior: root.querySelector(".feue-ai-behavior").value,
+                                autoEnd: root.querySelector(".feue-ai-autoend input").checked
+                            },
+                            [`flags.${SYSTEM_ID}.objective`]: {
+                                type,
+                                rounds,
+                                bosses,
+                                tiles,
+                                allegiance,
+                                escapeMode,
+                                escapeUnit,
+                                escapeUnits,
+                                startRound:
+                                    objective.type === "survive" && type === "survive"
+                                        ? (objective.startRound ?? 1)
+                                        : Math.max(1, combat.round)
+                            },
+                            ...(objective.type !== type
+                                ? { [`flags.${SYSTEM_ID}.eventProgress`]: { seized: [], escaped: [] } }
+                                : {})
+                        },
+                        { turnEvents: false }
+                    );
+                    combat.setupTurns();
+                    if (currentId)
+                        await combat.update(
+                            { turn: combat.turns.findIndex(unit => unit.id === currentId) },
+                            { turnEvents: false }
+                        );
+                    await checkEncounterObjective(combat);
+                    ui.combat.render();
+                }
+            },
+            { action: "cancel", label: "Cancel" }
+        ],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
+            const root = rootElement(html),
+                container = root.querySelector(".feue-factions");
             const refresh = () => {
-                const groups = Array.from(container.children).map(row => ({id: row.dataset.id, name: row.querySelector("input").value}));
+                const groups = Array.from(container.children).map(row => ({
+                    id: row.dataset.id,
+                    name: row.querySelector("input").value
+                }));
                 root.querySelectorAll("[data-unit]").forEach(select => {
                     const value = select.options.length ? select.value : select.dataset.selected;
-                    select.innerHTML = '<option value="">Automatic (disposition)</option>' + groups.map(g => `<option value="${esc(g.id)}" ${value === g.id ? "selected" : ""}>${esc(g.name)}</option>`).join("");
+                    select.innerHTML =
+                        '<option value="">Automatic (disposition)</option>' +
+                        groups
+                            .map(
+                                g =>
+                                    `<option value="${esc(g.id)}" ${value === g.id ? "selected" : ""}>${esc(g.name)}</option>`
+                            )
+                            .join("");
                 });
-                const objectiveGroup = root.querySelector(".feue-objective-allegiance"), value = objectiveGroup.options.length ? objectiveGroup.value : objectiveGroup.dataset.selected;
-                objectiveGroup.innerHTML = groups.map(g => `<option value="${esc(g.id)}" ${value === g.id ? "selected" : ""}>${esc(g.name)}</option>`).join("");
+                const objectiveGroup = root.querySelector(".feue-objective-allegiance"),
+                    value = objectiveGroup.options.length ? objectiveGroup.value : objectiveGroup.dataset.selected;
+                objectiveGroup.innerHTML = groups
+                    .map(g => `<option value="${esc(g.id)}" ${value === g.id ? "selected" : ""}>${esc(g.name)}</option>`)
+                    .join("");
                 const type = root.querySelector(".feue-objective-type").value;
                 root.querySelector(".feue-survive-options").hidden = type !== "survive";
                 root.querySelector(".feue-boss-options").hidden = type !== "boss";
                 root.querySelector(".feue-tile-objective-options").hidden = !["seize", "escape"].includes(type);
                 root.querySelector(".feue-escape-options").hidden = type !== "escape";
-                root.querySelector(".feue-escape-unit-choice").hidden = root.querySelector(".feue-escape-mode").value !== "selected";
+                root.querySelector(".feue-escape-unit-choice").hidden =
+                    root.querySelector(".feue-escape-mode").value !== "selected";
             };
-            root.querySelector(".feue-add-faction").onclick = () => { container.insertAdjacentHTML("beforeend", factionRow({id: foundry.utils.randomID(), name: "New allegiance", disposition: null})); refresh(); };
+            root.querySelector(".feue-add-faction").onclick = () => {
+                container.insertAdjacentHTML(
+                    "beforeend",
+                    factionRow({ id: foundry.utils.randomID(), name: "New allegiance", disposition: null })
+                );
+                refresh();
+            };
             container.addEventListener("input", refresh);
             container.addEventListener("click", event => {
                 const row = event.target.closest(".feue-faction-row");
                 if (!row) return;
                 if (event.target.closest(".feue-faction-remove")) row.remove();
-                if (event.target.closest(".feue-faction-up") && row.previousElementSibling) container.insertBefore(row, row.previousElementSibling);
-                if (event.target.closest(".feue-faction-down") && row.nextElementSibling) container.insertBefore(row.nextElementSibling, row);
+                if (event.target.closest(".feue-faction-up") && row.previousElementSibling)
+                    container.insertBefore(row, row.previousElementSibling);
+                if (event.target.closest(".feue-faction-down") && row.nextElementSibling)
+                    container.insertBefore(row.nextElementSibling, row);
                 refresh();
             });
             root.querySelector(".feue-objective-type").onchange = refresh;
             root.querySelector(".feue-escape-mode").onchange = refresh;
             refresh();
         }
-    }, {width: 620}).render(true);
+    }).render({force: true});
 }
 
 function renderTracker(app, html) {

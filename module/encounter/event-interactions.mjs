@@ -1,3 +1,4 @@
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {SYSTEM_ID} from "../map/terrain.mjs";
 import {esc, rootElement} from "../map/terrain-ui.mjs";
 import {eventFlags, interactEnabled, unavailableUnit, isEscaped, interactionReason, nearbyInteractions, openCredential,
@@ -9,7 +10,7 @@ import {inventoryItem, inventoryCopy, planChestReward, grantChestReward, withInv
 import {openConvoyInteraction} from "../units/convoy-ui.mjs";
 import {assertUnitAction, completeMajorAction, withUnitActionLock, tradePartners, openTradeMenu, unitActionReason, convoyAccess} from "../units/unit-actions.mjs";
 import {allegianceOf} from "./encounter-rules.mjs";
-import {captureMode, perMapTracked} from "../rules/alt-rules.mjs";
+import {captureMode, combatArtsOnlyDurability, perMapTracked} from "../rules/alt-rules.mjs";
 import {knockOut, slayUnit, recordMapUse} from "../rules/fall-rules.mjs";
 import {hasInfiniteUses} from "../rules/feue.mjs";
 import {squarePicker} from "../map/square-picker.mjs";
@@ -214,7 +215,7 @@ async function executeInteractionAction(request, user) {
             if (wallId && !wall) throw Error("The linked destructible wall is missing.");
             // Infinite (0/0 or Remove Durability) weapons spend nothing; Per-Map Durability charges the weapon at the end of the map.
             const uses = strike.weapon?.system.uses, perMap = !strike.demolish && perMapTracked(strike.weapon) && combat?.started;
-            const spend = !strike.demolish && !perMap && Number(uses?.max) > 0 && !hasInfiniteUses(uses), remainingUses = uses?.value;
+            const spend = !strike.demolish && !perMap && !combatArtsOnlyDurability(strike.weapon) && Number(uses?.max) > 0 && !hasInfiniteUses(uses), remainingUses = uses?.value;
             if (perMap) await recordMapUse(strike.weapon, {combat});
             if (spend) requireUpdated(await strike.weapon.update({"system.uses.value": Math.max(0, Number(remainingUses) - 1)}));
             try {
@@ -318,26 +319,69 @@ export function openInteractionMenu(token, {action = null} = {}) {
         }
         const labels = {talk: "Talk", open: "Open", activate: "Activate", rescue: "Rescue", drop: "Drop", seize: "Seize", escape: "Escape", break: "Break", slay: "Slay", trade: "Trade", convoy: "Convoy"};
         let dialog;
-        dialog = new Dialog({title: `${source.name} — Interact`, content: `<div class="feue-interaction-menu"><p>Solid objects and units: adjacent. Other Tiles: stand on them.</p>${choices.length ? choices.map((choice, index) =>
-            `<button type="button" data-interaction="${index}" ${choice.reason ? "disabled" : ""}><b>${labels[choice.action]}</b> — ${esc(choice.name)}</button>${choice.reason ? `<p class="hint">${esc(choice.reason)}</p>` : ""}`).join("") : "<p>No interactions in reach.</p>"}</div>`,
-            buttons: {close: {label: "Close"}}, render: html => {
-                rootElement(html).querySelectorAll("[data-interaction]").forEach(button => button.addEventListener("click", async () => {
-                    if (button.disabled) return;
-                    const choice = choices[Number(button.dataset.interaction)];
-                    rootElement(html).querySelectorAll("[data-interaction]").forEach(b => { b.disabled = true; });
-                    await dialog.close();
-                    try {
-                        if (choice.action === "drop") await pickDrop(choice);
-                        else if (choice.action === "trade") openTradeMenu(source, {allyId: choice.targetId});
-                        else if (choice.action === "convoy") openConvoyInteraction({source, party: choice.party, carrier: choice.carrier,
-                            inCombat: !!sceneCombat(scene)?.started, submit: moves => requestInteraction({sceneId: scene.id, sourceId: source.id,
-                                action: "convoy", targetType: "Token", targetId: choice.targetId, partyId: choice.partyId, ...moves})});
-                        else await requestInteraction({sceneId: scene.id, sourceId: source.id, action: choice.action,
-                            targetType: choice.targetType, targetId: choice.targetId});
-                    } catch (error) { ui.notifications.warn(error.message); }
-                }));
-            }});
-        dialog.render(true);
+        dialog = new FiresOfWarDialog({
+            window: { title: `${source.name} - Interact` },
+            content: `<div class="feue-interaction-menu"><p>Solid objects and units: adjacent. Other Tiles: stand on them.</p>${
+                choices.length
+                    ? choices
+                          .map(
+                              (choice, index) =>
+                                  `<button type="button" data-interaction="${index}" ${choice.reason ? "disabled" : ""}><b>${labels[choice.action]}</b> - ${esc(choice.name)}</button>${choice.reason ? `<p class="hint">${esc(choice.reason)}</p>` : ""}`
+                          )
+                          .join("")
+                    : "<p>No interactions in reach.</p>"
+            }</div>`,
+            buttons: [{ action: "close", label: "Close" }],
+            render: (event, dialog) => {
+                const html = $(dialog.element);
+                rootElement(html)
+                    .querySelectorAll("[data-interaction]")
+                    .forEach(button =>
+                        button.addEventListener("click", async () => {
+                            if (button.disabled) return;
+                            const choice = choices[Number(button.dataset.interaction)];
+                            rootElement(html)
+                                .querySelectorAll("[data-interaction]")
+                                .forEach(b => {
+                                    b.disabled = true;
+                                });
+                            await dialog.close();
+                            try {
+                                if (choice.action === "drop") await pickDrop(choice);
+                                else if (choice.action === "trade") openTradeMenu(source, { allyId: choice.targetId });
+                                else if (choice.action === "convoy")
+                                    openConvoyInteraction({
+                                        source,
+                                        party: choice.party,
+                                        carrier: choice.carrier,
+                                        inCombat: !!sceneCombat(scene)?.started,
+                                        submit: moves =>
+                                            requestInteraction({
+                                                sceneId: scene.id,
+                                                sourceId: source.id,
+                                                action: "convoy",
+                                                targetType: "Token",
+                                                targetId: choice.targetId,
+                                                partyId: choice.partyId,
+                                                ...moves
+                                            })
+                                    });
+                                else
+                                    await requestInteraction({
+                                        sceneId: scene.id,
+                                        sourceId: source.id,
+                                        action: choice.action,
+                                        targetType: choice.targetType,
+                                        targetId: choice.targetId
+                                    });
+                            } catch (error) {
+                                ui.notifications.warn(error.message);
+                            }
+                        })
+                    );
+            }
+        });
+        dialog.render({force: true});
         return dialog;
     } catch (error) { ui.notifications.warn(error.message); }
 }

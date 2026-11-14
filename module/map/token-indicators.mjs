@@ -155,21 +155,27 @@ export class TokenIndicators {
     }
 }
 
-/** Configure Settings → Token Indicator Icons: one image per unit type and weapon type.
- * Created at "init" because the v1 FormApplication base class only exists inside Foundry. */
-export const createTokenIndicatorConfig = (FormApplication = foundry.appv1?.api?.FormApplication ?? globalThis.FormApplication) => class TokenIndicatorConfig extends FormApplication {
-    static get defaultOptions() {
-        return foundry.utils.mergeObject(super.defaultOptions, {id: "feue-token-indicator-config", title: "Token Indicator Icons",
-            template: `systems/${SYSTEM}/templates/apps/token-indicators.html`, classes: ["feue-indicator-config"], width: 560, height: 640, resizable: true, closeOnSubmit: true});
-    }
-    getData() {
+/** Configure Settings → Token Indicator Icons: one image per unit type and weapon type. */
+export const createTokenIndicatorConfig = () => class TokenIndicatorConfig extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
+    static DEFAULT_OPTIONS = {
+        id: "feue-token-indicator-config",
+        classes: ["app", "window-app", "feue-indicator-config"],
+        position: {width: 560, height: 640},
+        window: {title: "Token Indicator Icons", resizable: true}
+    };
+
+    static PARTS = {
+        form: {template: `systems/${SYSTEM}/templates/apps/token-indicators.html`, scrollable: [""],
+            forms: {form: {handler: TokenIndicatorConfig._saveIcons, closeOnSubmit: true}}}
+    };
+    async _prepareContext(options) {
         const saved = setting("tokenIndicatorIcons", {}), icons = indicatorIcons(saved);
         const row = (group, key, label) => ({group, key, label, value: icons[group][key] ?? "", fallback: DEFAULT_ICONS[group][key], custom: saved?.[group]?.[key] !== undefined});
-        return {unitTypes: UNIT_TYPES.map(type => row("unitTypes", type, type)), weapons: Object.entries(WEAPON_TYPES).map(([key, label]) => row("weapons", key, label))};
+        return {...await super._prepareContext(options), unitTypes: UNIT_TYPES.map(type => row("unitTypes", type, type)), weapons: Object.entries(WEAPON_TYPES).map(([key, label]) => row("weapons", key, label))};
     }
-    activateListeners(html) {
-        super.activateListeners(html);
-        const root = html[0] ?? html;
+    async _onRender(context, options) {
+        await super._onRender(context, options);
+        const root = this.element;
         root.querySelectorAll("input[data-icon]").forEach(input => input.addEventListener("change", () => {
             const preview = input.closest(".feue-indicator-row")?.querySelector("img");
             if (preview) { preview.src = input.value || ""; preview.classList.toggle("empty", !input.value); }
@@ -181,13 +187,13 @@ export const createTokenIndicatorConfig = (FormApplication = foundry.appv1?.api?
         }));
         root.querySelectorAll("[data-browse]").forEach(button => button.addEventListener("click", () => {
             const input = root.querySelector(`input[name="${button.dataset.browse}"]`);
-            const Picker = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
-            new Picker({type: "image", current: input.value, callback: path => { input.value = path; input.dispatchEvent(new Event("change")); }}).render(true);
+            const Picker = foundry.applications.apps.FilePicker.implementation;
+            new Picker({type: "image", current: input.value, callback: path => { input.value = path; input.dispatchEvent(new Event("change")); }}).render({force: true});
         }));
     }
-    async _updateObject(event, formData) {
+    static async _saveIcons(event, form, formData) {
         const value = {unitTypes: {}, weapons: {}};
-        for (const [name, path] of Object.entries(foundry.utils.expandObject(formData))) {
+        for (const [name, path] of Object.entries(foundry.utils.expandObject(formData.object))) {
             for (const [key, src] of Object.entries(path ?? {})) {
                 const fallback = DEFAULT_ICONS[name]?.[key];
                 if (fallback !== undefined && String(src ?? "").trim() !== fallback) value[name][key] = String(src ?? "").trim();

@@ -1,6 +1,8 @@
 // Fires of War system for Foundry VTT
 // Clean rewrite without sanitizers
 
+import {FiresOfWarDialog} from "./module/ui/dialog.mjs";
+import {FiresOfWarSheetMixin} from "./module/ui/document-sheet.mjs";
 import {registerDataModels} from "./module/data/models.mjs";
 import {
     WEAPON_RANK_ORDER,
@@ -45,7 +47,7 @@ import {combatStatDisplay, attributeDisplay, movementDisplay, COMBAT_STATS} from
 import {AREA_PRESETS, DEFAULT_ORIGIN, EDITOR_SIZE, battalionArea, battalionOperational, battalionStats, battalionTooltip, battalionUseReason, editorArea, normalizeShape, resolveBattalion} from "./module/combat/battalions.mjs";
 import {statusStatModifiers, isIncapacitated, isSilenced, activeStatuses, statusImmune, STATUS_RULES, CONDITION_ICONS, DEAD_STATUS, conditionForStatus} from "./module/rules/status-rules.mjs";
 import {registerConditions, toggleCondition, setCondition} from "./module/rules/conditions.mjs";
-import {registerAltRuleSettings, weaponTriangle, triangleOverride, durabilityExempt, perMapTracked, perMapArtCost, artCostMode, effectivePrice, revivalEnabled, revivalAllowed,
+import {registerAltRuleSettings, weaponTriangle, triangleOverride, durabilityExempt, combatArtsOnlyDurability, perMapTracked, perMapArtCost, artCostMode, effectivePrice, revivalEnabled, revivalAllowed,
     revivalState, revivalHpMultiplier, revivalBonusTerms, revivalSkillOpen, REVIVAL_STAT_KEYS, fateEnabled, fateMax, fatePoints, replaceableMounts, isMountItem, mountLost, sameEquipSlot} from "./module/rules/alt-rules.mjs";
 import {registerPhaseBanner} from "./module/encounter/phase-banner.mjs";
 import {registerCombatAI} from "./module/ai/combat-ai.mjs";
@@ -85,7 +87,7 @@ registerCharacterActionHud((actor, action, item, options) => {
         case "activation": return sheet._rollSkillActivation(item);
         case "battalion": return sheet._beginBattalion(item, options);
         case "skill": return sheet._useSkill(item, options);
-        case "details": return item.sheet.render(true);
+        case "details": return item.sheet.render({force: true});
     }
 });
 
@@ -897,31 +899,31 @@ class FiresOfWarActor extends Actor {
         const opts = promotions.map(p => `<option value="${p.id}">${p.name} (${p.classType})</option>`).join("");
         const itemField = items.length ? `<p>Proper Promotion (Full Classic) spends a class change item:</p>
                 <div class="form-group"><select id="feue-promo-item" style="width:100%;">${items.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join("")}</select></div>` : "";
-        new Dialog({
-            title: "Promotion Available!",
+        new FiresOfWarDialog({
+            window: { title: "Promotion Available!" },
             content: `<div style="padding:10px;">
-                <p>Choose your promotion path:</p>
-                <div class="form-group">
-                    <select id="feue-promo-choice" style="width:100%;">${opts}</select>
-                </div>${itemField}
-            </div>`,
-            buttons: {
-                promote: {
-                    icon: '<i class="fas fa-arrow-up"></i>',
+                        <p>Choose your promotion path:</p>
+                        <div class="form-group">
+                            <select id="feue-promo-choice" style="width:100%;">${opts}</select>
+                        </div>${itemField}
+                    </div>`,
+            buttons: [
+                {
+                    action: "promote",
+                    default: true,
+                    icon: "fas fa-arrow-up",
                     label: "Promote",
-                    callback: async (html) => {
+                    callback: async (event, button, dialog) => {
+                        const html = $(dialog.element);
                         const item = items.length ? this.items.get(html.find("#feue-promo-item").val()) : null;
-                        if (items.length && !item) return ui.notifications.warn("That class change item is no longer available.");
+                        if (items.length && !item)
+                            return ui.notifications.warn("That class change item is no longer available.");
                         await this.promoteTo(classItem, html.find("#feue-promo-choice").val(), { item, levelUp: true });
                     }
                 },
-                cancel: {
-                    icon: '<i class="fas fa-times"></i>',
-                    label: "Decide Later"
-                }
-            },
-            default: "promote"
-        }).render(true);
+                { action: "cancel", icon: "fas fa-times", label: "Decide Later" }
+            ]
+        }).render({force: true});
     }
 
     /**
@@ -1380,10 +1382,9 @@ class FiresOfWarActor extends Actor {
 // ====================================================================
 // 3. ACTOR SHEET
 // ====================================================================
-class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
-    async _updateObject(event, formData) {
-        const name = event?.type === "change" ? event.currentTarget?.name : null;
-        if (name && name in formData) formData = {[name]: formData[name]};
+class FiresOfWarCharacterSheet extends FiresOfWarSheetMixin(foundry.applications.sheets.ActorSheetV2) {
+    _processFormData(event, form, formData) {
+        formData = foundry.utils.flattenObject(super._processFormData(event, form, formData));
         // Current Movement is displayed after Rescue. Preserve the raw value when
         // submitting another field, and convert intentional edits back to base units.
         const key = "system.movement.current";
@@ -1400,30 +1401,27 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             if (max !== before.max && Number(formData[stonesValue] ?? before.value) === before.value && before.value === before.max) formData[stonesValue] = max;
             if (stonesValue in formData) formData[stonesValue] = Math.min(max, Math.max(0, Math.trunc(Number(formData[stonesValue]) || 0)));
         }
-        return super._updateObject(event, formData);
+        return foundry.utils.expandObject(formData);
     }
 
-    _onChangeInput(event) {
-        if (!event.currentTarget?.name) return;
-        return super._onChangeInput(event);
-    }
+    static DEFAULT_OPTIONS = {
+        classes: ["feue", "sheet", "actor", "character"],
+        position: {width: 980, height: 750}
+    };
 
-    static get defaultOptions() {
-        return foundry.utils.mergeObject(super.defaultOptions, {
-            classes: ["feue", "sheet", "actor", "character"],
-            template: "systems/fires-of-war/templates/actor/character-sheet.html",
-            width: 980, height: 750,
-            // Keep the page where it was when an edit re-renders the sheet.
-            scrollY: [".sheet-body", ".unit-sidebar"],
-            tabs: [{ navSelector: ".sheet-tabs", contentSelector: ".sheet-body", initial: "main" }]
-        });
-    }
+    static PARTS = {
+        sheet: {template: "systems/fires-of-war/templates/actor/character-sheet.html", scrollable: [".sheet-body", ".unit-sidebar"]}
+    };
 
-    getData() {
-        const data = super.getData();
+    static TABS = {
+        primary: {initial: "main", tabs: ["main", "combat", "inventory", "ranks", "skills", "biography"].map(id => ({id}))}
+    };
+
+    async _prepareContext(options) {
+        const data = await super._prepareContext(options);
         data.terrain = getAppliedTerrain(this.actor);
         data.hasTerrainStats = !!(data.terrain.avoid || data.terrain.defense);
-        data.appId = this.appId;
+        data.appId = this.id;
         data.FEUE = FEUE;
         data.weaponRankOptions = Object.entries(FEUE.WEAPON_RANKS).map(([key, value]) => ({ key, label: value.label }));
         data.battalionRankOptions = data.weaponRankOptions.filter(option => option.key);
@@ -1722,45 +1720,38 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         return inventoryUsage(this.actor);
     }
 
-    async _onDropItem(event, data) {
-        const item = await Item.implementation.fromDropData(data);
+    async _onDropItem(event, item) {
         if (item?.parent?.type === "party") {
             try { return await requestConvoy({action: "withdraw", partyId: item.parent.id, unitUuid: this.actor.uuid, itemId: item.id}); }
-            catch (error) { ui.notifications.warn(error.message); return false; }
+            catch (error) { ui.notifications.warn(error.message); return null; }
         }
-        return super._onDropItem(event, data);
-    }
-
-    async _onDropItemCreate(itemData, event) {
-        const equipClass = !this.actor.items.some(i => i.type === "class" && i.system.equipped);
-        const items = await super._onDropItemCreate(itemData, event);
-        const classItem = equipClass ? items.find(i => i.type === "class") : null;
-        if (classItem) {
-            await classItem.update({ "system.equipped": true });
-            const node = this.actor._getCurrentClassNode(classItem);
+        const equipClass = item.parent?.uuid !== this.actor.uuid && !this.actor.items.some(i => i.type === "class" && i.system.equipped);
+        const created = await super._onDropItem(event, item);
+        if (equipClass && created?.type === "class") {
+            await created.update({"system.equipped": true});
+            const node = this.actor._getCurrentClassNode(created);
             await this.actor._syncClassProfile(node);
-            await this.actor._grantClassSkills(node, { upToLevel: this.actor.system.level || 1 });
+            await this.actor._grantClassSkills(node, {upToLevel: this.actor.system.level || 1});
         }
-        return items;
+        return created;
     }
 
-    _disableFields(form) {
-        super._disableFields(form);
+    _toggleDisabled(disabled) {
+        super._toggleDisabled(disabled);
+        const form = this.form;
+        if (!form) return;
         // Foundry disables all buttons for observers, including navigation.
         for (const button of form.querySelectorAll(".sheet-page-step")) button.disabled = false;
     }
 
-    activateListeners(html) {
-        super.activateListeners(html);
+    _bindSheetListeners(html) {
         // Page browsing must also work on observer sheets.
         html.find(".sheet-page-step").click(event => {
             event.preventDefault();
-            const tabs = this._tabs[0];
-            if (!tabs) return;
             const pages = html.find(".sheet-tabs [data-tab]").toArray().map(el => el.dataset.tab);
-            const index = Math.max(0, pages.indexOf(tabs.active));
+            const index = Math.max(0, pages.indexOf(this.tabGroups.primary));
             const step = Number(event.currentTarget.dataset.pageStep);
-            tabs.activate(pages[(index + step + pages.length) % pages.length], { triggerCallback: true });
+            this.changeTab(pages[(index + step + pages.length) % pages.length], "primary", {updatePosition: false});
             html.find(".sheet-body").scrollTop(0);
             html.find(".tab.active .sheet-page-step").filter(`[data-page-step="${step}"]`).trigger("focus");
         });
@@ -1781,7 +1772,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             toggle.next(".other-weapons-content").slideToggle(200);
             toggle.find("i.fas").toggleClass("fa-caret-right fa-caret-down");
         });
-        if (!this.options.editable) return;
+        if (!this.isEditable) return;
 
         html.find(".level-up").click(async () => this.actor.levelUp());
         html.find(".award-xp").click(() => this._onAwardXp());
@@ -1864,13 +1855,16 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                 const v = Number(crest.reductions?.[k] || 0);
                 return `<div class="form-group"><label style="flex:1">${FEUE.STAT_LABELS[k] || k}</label><input type="number" data-stat="${k}" value="${v}" style="width:60px" min="0"/></div>`;
             }).join("");
-            new Dialog({
-                title: `Edit Growth Reductions — ${crest.name || "Crest"}`,
+            new FiresOfWarDialog({
+                window: { title: `Edit Growth Reductions - ${crest.name || "Crest"}` },
                 content: `<div><p>Major Crest: reduce one GR by 2 <i>or</i> two by 1. Minor Crest: reduce one GR by 1.</p>${rows}</div>`,
-                buttons: {
-                    save: {
+                buttons: [
+                    {
+                        action: "save",
+                        default: true,
                         label: "Save",
-                        callback: (dlg) => {
+                        callback: (event, button, dialog) => {
+                            const dlg = $(dialog.element);
                             const reductions = {};
                             dlg.find("input[data-stat]").each((_, inp) => {
                                 const k = inp.dataset.stat;
@@ -1884,10 +1878,9 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                             }
                         }
                     },
-                    cancel: { label: "Cancel" }
-                },
-                default: "save"
-            }).render(true);
+                    { action: "cancel", label: "Cancel" }
+                ]
+            }).render({force: true});
         });
 
         // Reclassing
@@ -1904,23 +1897,25 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                 return;
             }
             const opts = available.map(c => `<option value="${c.id}">${c.name} (${c.type})</option>`).join("");
-            new Dialog({
-                title: "Add Alternate Class",
+            new FiresOfWarDialog({
+                window: { title: "Add Alternate Class" },
                 content: `<div><p>Choose a Standard class to add as an alternate.</p><select id="feue-alt-class" style="width:100%">${opts}</select></div>`,
-                buttons: {
-                    add: {
+                buttons: [
+                    {
+                        action: "add",
+                        default: true,
                         label: "Add",
-                        callback: async (dlg) => {
+                        callback: async (event, button, dialog) => {
+                            const dlg = $(dialog.element);
                             const id = dlg.find("#feue-alt-class").val();
                             if (!id) return;
                             const list = [...current, id];
                             await this.actor.update({ "system.alternateClasses": list });
                         }
                     },
-                    cancel: { label: "Cancel" }
-                },
-                default: "add"
-            }).render(true);
+                    { action: "cancel", label: "Cancel" }
+                ]
+            }).render({force: true});
         });
         html.find(".alt-class-remove").click(async ev => {
             const id = $(ev.currentTarget).data("id");
@@ -1938,22 +1933,24 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             const choices = this.actor.reclassTargets();
             if (!choices.length) { ui.notifications.warn("No classes available to reclass into."); return; }
             const opts = choices.map(c => `<option value="${c.id}">${esc(c.name)} (${c.system.classType})</option>`).join("");
-            new Dialog({
-                title: "Reclass",
+            new FiresOfWarDialog({
+                window: { title: "Reclass" },
                 content: `<div><p>Choose a class to switch to. Stats and weapon ranks are preserved.</p><select id="feue-reclass-choice" style="width:100%">${opts}</select></div>`,
-                buttons: {
-                    reclass: {
+                buttons: [
+                    {
+                        action: "reclass",
+                        default: true,
                         label: "Reclass",
-                        callback: async (dlg) => {
+                        callback: async (event, button, dialog) => {
+                            const dlg = $(dialog.element);
                             const id = dlg.find("#feue-reclass-choice").val();
                             if (!id) return;
                             await this.actor.reclassTo(id);
                         }
                     },
-                    cancel: { label: "Cancel" }
-                },
-                default: "reclass"
-            }).render(true);
+                    { action: "cancel", label: "Cancel" }
+                ]
+            }).render({force: true});
         });
 
         html.find(".holy-blood-add").click(async () => {
@@ -1976,21 +1973,20 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             await this.actor.update({ "system.holyBlood": lines });
         });
         html.find(".level-reset").click(async () => {
-            new Dialog({
-                title: "Reset Level",
+            new FiresOfWarDialog({
+                window: { title: "Reset Level" },
                 content: `<p><b>Warning:</b> This will remove ALL stat gains from leveling up and reset ${this.actor.name} to Level 1.</p><p>Are you sure?</p>`,
-                buttons: {
-                    yes: { icon: '<i class="fas fa-exclamation-triangle"></i>', label: "Reset", callback: () => this.actor.levelReset() },
-                    no: { label: "Cancel" }
-                },
-                default: "no"
-            }).render(true);
+                buttons: [
+                    { action: "yes", icon: "fas fa-exclamation-triangle", label: "Reset", callback: () => this.actor.levelReset() },
+                    { action: "no", default: true, label: "Cancel" }
+                ]
+            }).render({force: true});
         });
         html.find(".item-control.item-create").click(async (ev) => this._onItemCreate(ev));
         html.find(".item-control.item-edit").click(ev => {
             const id = $(ev.currentTarget).closest(".item").data("item-id");
             const item = this.actor.items.get(id);
-            if (item) item.sheet.render(true);
+            if (item) item.sheet.render({force: true});
         });
 
         html.find(".item-control.item-delete").click(async ev => {
@@ -2137,32 +2133,34 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             </div>`;
         }).join("");
 
-        const dialog = new Dialog({
-            title: `${source.className}: Roleplay Traits`,
-            content: `<form class="feue-trait-swap-dialog">
-                <p>Choose the base trait or its specific optional replacement for each slot.</p>
-                ${rows || "<p>No traits are configured for this class.</p>"}
-            </form>`,
-            buttons: {
-                save: {
-                    icon: '<i class="fas fa-save"></i>',
+        const dialog = new FiresOfWarDialog({
+            window: { title: `${source.className}: Roleplay Traits` },
+            position: { width: 520 },
+            content: `<div class="feue-trait-swap-dialog">
+                        <p>Choose the base trait or its specific optional replacement for each slot.</p>
+                        ${rows || "<p>No traits are configured for this class.</p>"}
+                    </div>`,
+            buttons: [
+                {
+                    action: "save",
+                    default: true,
+                    icon: "fas fa-save",
                     label: "Save Choices",
-                    callback: async html => {
+                    callback: async (event, button, dialog) => {
+                        const html = $(dialog.element);
                         const nextChoices = foundry.utils.deepClone(choiceMap);
                         nextChoices[source.key] = {};
                         html.find("select[data-trait-index]").each((_, element) => {
-                            nextChoices[source.key][element.dataset.traitIndex] = element.value === "alternative"
-                                ? "alternative"
-                                : "base";
+                            nextChoices[source.key][element.dataset.traitIndex] =
+                                element.value === "alternative" ? "alternative" : "base";
                         });
                         await this.actor.update({ "system.roleplayTraitChoices": nextChoices });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "save"
-        }, { width: 520 });
-        dialog.render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        });
+        dialog.render({force: true});
     }
 
     _promptRoleplayTraitRoll(traitName) {
@@ -2172,23 +2170,28 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             const labels = { 2: "Trivial", 4: "Simple", 6: "Standard", 8: "Hard", 10: "Impossible" };
             return `<option value="${target}"${target === 6 ? " selected" : ""}>TN ${target}${labels[target] ? ` — ${labels[target]}` : ""}</option>`;
         }).join("");
-        const dialog = new Dialog({
-            title: `Roleplay Trait Check: ${safeTrait}`,
-            content: `<form class="feue-trait-roll-dialog">
-                <p><b>${safeTrait}</b> rolls <b>${roleplayTraitFormula(hasRelevantTrait)}</b>${hasRelevantTrait ? " (keep highest)" : ""}.</p>
-                <div class="form-group"><label for="feue-trait-tn">Target Number</label><select id="feue-trait-tn">${options}</select></div>
-            </form>`,
-            buttons: {
-                roll: {
-                    icon: '<i class="fas fa-dice-d10"></i>',
+        const dialog = new FiresOfWarDialog({
+            window: { title: `Roleplay Trait Check: ${safeTrait}` },
+            position: { width: 430 },
+            content: `<div class="feue-trait-roll-dialog">
+                        <p><b>${safeTrait}</b> rolls <b>${roleplayTraitFormula(hasRelevantTrait)}</b>${hasRelevantTrait ? " (keep highest)" : ""}.</p>
+                        <div class="form-group"><label for="feue-trait-tn">Target Number</label><select id="feue-trait-tn">${options}</select></div>
+                    </div>`,
+            buttons: [
+                {
+                    action: "roll",
+                    default: true,
+                    icon: "fas fa-dice-d10",
                     label: "Roll Check",
-                    callback: html => this._rollRoleplayTrait(traitName, Number(html.find("#feue-trait-tn").val()))
+                    callback: (event, button, dialog) => {
+                        const html = $(dialog.element);
+                        return this._rollRoleplayTrait(traitName, Number(html.find("#feue-trait-tn").val()));
+                    }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "roll"
-        }, { width: 430 });
-        dialog.render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        });
+        dialog.render({force: true});
     }
 
     async _rollRoleplayTrait(traitName, target) {
@@ -2234,48 +2237,70 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         const declaredFrom = h => Object.fromEntries(options.map(o => [o.key, o.forced || !!h.find(`[data-declare="${o.key}"]`).prop("checked")]));
         const declareHtml = options.length ? `<fieldset class="feue-battle-declare"><legend>Declare skills</legend>${options.map(o => `<label title="${_escapeTokenActionHtml(o.summary)}"><input type="checkbox" data-declare="${o.key}" ${o.forced ? "checked disabled" : ""}/> ${_escapeTokenActionHtml(o.label)}${o.forced ? " <small>(required for this range)</small>" : ""}</label>`).join("")}</fieldset>` : "";
         const sourceItem = weapon.sourceItem ?? weapon;
-        const dialog = new Dialog({
-            title: "Battle Forecast",
-            content: `<form class="feue-battle-form">
-                <div class="feue-battle-heading"><span>Battle forecast</span><small>Damage per strike · before critical hits · hover a value for its breakdown</small></div>
-                <div id="attack-preview">${renderBattleForecast(buildForecast("auto", Object.fromEntries(options.map(o => [o.key, o.forced]))))}</div>
-                ${triangleOverride() ? `<div class="feue-battle-triangle"><label for="wt-triangle">Weapon Triangle override</label>
-                    <select id="wt-triangle">
-                        <option value="auto">Automatic</option>
-                        <option value="none">None</option>
-                        <option value="advantage">Advantage (+15 Hit, +3 Mt)</option>
-                        <option value="disadvantage">Disadvantage (-15 Hit, -3 Mt)</option>
-                    </select>
-                </div>` : ""}
-                ${declareHtml}
-            </form>`,
-            buttons: {
-                roll: {
-                    icon: '<i class="fas fa-crosshairs"></i>', label: "Attack",
-                    callback: async (h) => {
+        const dialog = new FiresOfWarDialog({
+            window: { title: "Battle Forecast" },
+            position: { width: Math.min(680, window.innerWidth - 32) },
+            content: `<div class="feue-battle-form">
+                        <div class="feue-battle-heading"><span>Battle forecast</span><small>Damage per strike · before critical hits · hover a value for its breakdown</small></div>
+                        <div id="attack-preview">${renderBattleForecast(buildForecast("auto", Object.fromEntries(options.map(o => [o.key, o.forced]))))}</div>
+                        ${
+                            triangleOverride()
+                                ? `<div class="feue-battle-triangle"><label for="wt-triangle">Weapon Triangle override</label>
+                            <select id="wt-triangle">
+                                <option value="auto">Automatic</option>
+                                <option value="none">None</option>
+                                <option value="advantage">Advantage (+15 Hit, +3 Mt)</option>
+                                <option value="disadvantage">Disadvantage (-15 Hit, -3 Mt)</option>
+                            </select>
+                        </div>`
+                                : ""
+                        }
+                        ${declareHtml}
+                    </div>`,
+            buttons: [
+                {
+                    action: "roll",
+                    default: true,
+                    icon: "fas fa-crosshairs",
+                    label: "Attack",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         if (validateTarget && !validateTarget()) return;
-                        if (this.actor.items.get(sourceItem.id) !== sourceItem || targetToken &&
-                            (targetToken.destroyed || !targetToken.visible || targetToken.document.hidden && !game.user.isGM ||
-                            targetToken.actor !== target || Array.from(game.user.targets).length !== 1 || !game.user.targets.has(targetToken))) {
+                        if (
+                            this.actor.items.get(sourceItem.id) !== sourceItem ||
+                            (targetToken &&
+                                (targetToken.destroyed ||
+                                    !targetToken.visible ||
+                                    (targetToken.document.hidden && !game.user.isGM) ||
+                                    targetToken.actor !== target ||
+                                    Array.from(game.user.targets).length !== 1 ||
+                                    !game.user.targets.has(targetToken)))
+                        ) {
                             return ui.notifications.warn("The battle target or weapon changed. Open the forecast again.");
                         }
                         if (sourceToken && targetToken && !tokenInItemRange(sourceToken, targetToken, weapon, grid)) {
                             return ui.notifications.warn("The target is outside this weapon's range.");
                         }
-                        try { await requestBattleAttack(buildForecast(chosenTriangle(h), declaredFrom(h))); }
-                        catch (error) { console.error("FEUE | Battle failed", error); ui.notifications.error(error.message); }
+                        try {
+                            await requestBattleAttack(buildForecast(chosenTriangle(h), declaredFrom(h)));
+                        } catch (error) {
+                            console.error("FEUE | Battle failed", error);
+                            ui.notifications.error(error.message);
+                        }
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "roll",
-            render: (h) => {
-                const refresh = () => h.find("#attack-preview").html(renderBattleForecast(buildForecast(chosenTriangle(h), declaredFrom(h))));
+                { action: "cancel", label: "Cancel" }
+            ],
+            render: (event, dialog) => {
+                const h = $(dialog.element);
+                const refresh = () =>
+                    h.find("#attack-preview").html(renderBattleForecast(buildForecast(chosenTriangle(h), declaredFrom(h))));
                 h.find("#wt-triangle").change(refresh);
                 h.find("[data-declare]").change(refresh);
-            }
-        }, {classes: ["dialog", "feue-battle-dialog"], width: Math.min(680, window.innerWidth - 32)});
-        dialog.render(true);
+            },
+            classes: ["dialog", "feue-battle-dialog"]
+        });
+        dialog.render({force: true});
     }
 
     /** Get targeted token's actor, if any. */
@@ -2526,7 +2551,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         }
     }
 
-    async _executeAttackStrike(weapon, triangle = "none", target = null, {sourceToken, targetToken, initiating = true, userId = game.user.id, strikeLabel = "Attack", attackEffects, durabilityCost = 1, modifiers = {}, expanded = false, openingSkills = [], combatEffects = null, declared = {}, targetWeapon, targetCanCounter} = {}) {
+    async _executeAttackStrike(weapon, triangle = "none", target = null, {sourceToken, targetToken, initiating = true, userId = game.user.id, strikeLabel = "Attack", attackEffects, durabilityCost = 1, combatArt = false, modifiers = {}, expanded = false, openingSkills = [], combatEffects = null, declared = {}, targetWeapon, targetCanCounter} = {}) {
         const a = this.actor;
         sourceToken ??= actorActionToken(a);
         targetToken ??= target ? Array.from(game.user.targets ?? []).find(token => token.actor === target) : null;
@@ -2549,7 +2574,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             const results = [];
             for (let i = 0; i < attackEffects.strikes; i++) {
                 if (Number(a.system.attributes?.hp?.value) <= 0 || target && Number(target.system.attributes?.hp?.value) <= 0) break;
-                results.push(await this._executeAttackStrike(weapon, triangle, target, {sourceToken, targetToken, initiating, userId, strikeLabel: `${strikeLabel} · Astra ${i + 1}`, attackEffects, durabilityCost, modifiers, expanded: true, openingSkills: i === 0 ? openingSkills : [], declared, targetWeapon, targetCanCounter}));
+                results.push(await this._executeAttackStrike(weapon, triangle, target, {sourceToken, targetToken, initiating, userId, strikeLabel: `${strikeLabel} · Astra ${i + 1}`, attackEffects, durabilityCost, combatArt, modifiers, expanded: true, openingSkills: i === 0 ? openingSkills : [], declared, targetWeapon, targetCanCounter}));
             }
             return results;
         }
@@ -2575,7 +2600,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         let crit = false;
         if (hit && s.netCrit > 0 && !props.shade) { const cR = await new Roll("1d100").evaluate(); crit = cR.total <= s.netCrit; }
         // Loptous Blood: the Loptous tome never loses durability.
-        const freeUse = hasSkill(a, "loptous blood") && /loptous/i.test(String(weapon.name ?? ""));
+        const freeUse = !combatArt && combatArtsOnlyDurability(weapon) || hasSkill(a, "loptous blood") && /loptous/i.test(String(weapon.name ?? ""));
         // Per-Map Durability: an encounter participant's weapon is charged at the end of the map instead.
         const mapCombat = perMapTracked(weapon) ? unitCombatant(sourceToken)?.parent ?? null : null;
         if (mapCombat && !freeUse) await recordMapUse(weapon, {combat: mapCombat});
@@ -2731,30 +2756,40 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         const penaltyLine = penalties.length ? `<p style="color:red;"><b>${penalties.join(", ")}</b></p>` : "";
         const hitLine = needsHitRoll ? `<p>Hit: <b>${rawHit}%</b></p>` : "";
 
-        new Dialog({
-            title: `Use ${weapon.name}`,
-            content: `<form>
-                ${penaltyLine}
-                <div class="form-group"><label>Target</label><select id="staff-target">${targetOptions.join("")}</select></div>
-                <p>Healing: <b>${healing}</b> HP (${baseMight} Mt + ${mag} MAG${mightMult !== 1 ? ` × ${mightMult}` : ""})</p>
-                ${hitLine}
-            </form>`,
-            buttons: {
-                use: {
-                    icon: '<i class="fas fa-heart"></i>', label: "Use",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: `Use ${weapon.name}` },
+            content: `<div>
+                        ${penaltyLine}
+                        <div class="form-group"><label>Target</label><select id="staff-target">${targetOptions.join("")}</select></div>
+                        <p>Healing: <b>${healing}</b> HP (${baseMight} Mt + ${mag} MAG${mightMult !== 1 ? ` × ${mightMult}` : ""})</p>
+                        ${hitLine}
+                    </div>`,
+            buttons: [
+                {
+                    action: "use",
+                    default: true,
+                    icon: "fas fa-heart",
+                    label: "Use",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const targetId = h.find("#staff-target").val();
                         const targetToken = targetTokens?.find(t => t.id === targetId);
                         if (validateHealingTarget && !validateHealingTarget(targetToken)) return;
-                        const target = targetTokens ? targetToken?.actor : targetId === "self" ? caster : game.actors.get(targetId);
+                        const target = targetTokens
+                            ? targetToken?.actor
+                            : targetId === "self"
+                              ? caster
+                              : game.actors.get(targetId);
                         if (!target) return;
-                        return this._resolveHealingAction(weapon, {sourceToken, targetToken: targetToken ?? actorActionToken(target)});
+                        return this._resolveHealingAction(weapon, {
+                            sourceToken,
+                            targetToken: targetToken ?? actorActionToken(target)
+                        });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "use"
-        }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     async _castHealingSpell(sp, caster, mag, admixMt, cost, baseCost, admix, admixWeapon, {targetTokens, validateHealingTarget, sourceToken} = {}) {
@@ -2772,29 +2807,39 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
             }
         }
 
-        new Dialog({
-            title: `${sp.name} — Healing`,
-            content: `<form>
-                <div class="form-group"><label>Target</label><select id="heal-target">${targetOptions.join("")}</select></div>
-                <p>Healing: <b>${healing}</b> HP (${sp.system.might} Mt + ${mag} MAG${admixMt ? ` + ${admixMt} Admix` : ""})</p>
-                <p>HP Cost: <b>${cost}</b>${admix ? ` (base ${baseCost})` : ""}</p>
-            </form>`,
-            buttons: {
-                cast: {
-                    icon: '<i class="fas fa-heart"></i>', label: "Cast",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: `${sp.name} - Healing` },
+            content: `<div>
+                        <div class="form-group"><label>Target</label><select id="heal-target">${targetOptions.join("")}</select></div>
+                        <p>Healing: <b>${healing}</b> HP (${sp.system.might} Mt + ${mag} MAG${admixMt ? ` + ${admixMt} Admix` : ""})</p>
+                        <p>HP Cost: <b>${cost}</b>${admix ? ` (base ${baseCost})` : ""}</p>
+                    </div>`,
+            buttons: [
+                {
+                    action: "cast",
+                    default: true,
+                    icon: "fas fa-heart",
+                    label: "Cast",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const targetId = h.find("#heal-target").val();
                         const targetToken = targetTokens?.find(t => t.id === targetId);
                         if (validateHealingTarget && !validateHealingTarget(targetToken)) return;
-                        const target = targetTokens ? targetToken?.actor : targetId === "self" ? caster : game.actors.get(targetId);
+                        const target = targetTokens
+                            ? targetToken?.actor
+                            : targetId === "self"
+                              ? caster
+                              : game.actors.get(targetId);
                         if (!target) return;
-                        return this._resolveHealingAction(sp, {sourceToken, targetToken: targetToken ?? actorActionToken(target)});
+                        return this._resolveHealingAction(sp, {
+                            sourceToken,
+                            targetToken: targetToken ?? actorActionToken(target)
+                        });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "cast"
-        }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     async _onRollCombatArt(event) {
@@ -2808,10 +2853,23 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         if (!valid.length) return ui.notifications.warn("No weapon meets this Combat Art's prerequisites.");
         if (valid.length === 1) return this._executeCombatArt(art, valid[0]);
         const opts = valid.map(w => `<option value="${w.id}">${w.name}</option>`).join("");
-        new Dialog({
-            title: `${art.name}`, content: `<form><div class="form-group"><label>Weapon</label><select id="ca-wpn">${opts}</select></div></form>`,
-            buttons: { use: { label: "Use", callback: (h) => { const w = this.actor.items.get(h.find("#ca-wpn").val()); if (w) this._executeCombatArt(art, w); } }, cancel: { label: "Cancel" } }, default: "use"
-        }).render(true);
+        new FiresOfWarDialog({
+            window: { title: `${art.name}` },
+            content: `<div><div class="form-group"><label>Weapon</label><select id="ca-wpn">${opts}</select></div></div>`,
+            buttons: [
+                {
+                    action: "use",
+                    default: true,
+                    label: "Use",
+                    callback: (event, button, dialog) => {
+                        const h = $(dialog.element);
+                        const w = this.actor.items.get(h.find("#ca-wpn").val());
+                        if (w) this._executeCombatArt(art, w);
+                    }
+                },
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     async _executeCombatArt(art, weapon, options = {}) {
@@ -2846,7 +2904,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         }
         const mapCombat = perMap ? unitCombatant(actorActionToken(this.actor, options.sourceToken))?.parent ?? null : null;
         if (mapCombat) await recordMapUse(weapon, {combat: mapCombat, arts: perMapArtCost(dc)});
-        const result = await this._executeAttackStrike(weapon, "auto", target, {...options, durabilityCost: payWith === "hp" ? 0 : dc, strikeLabel: payWith === "hp" && dc ? `${art.name} (${dc} HP)` : art.name, targetCanCounter: false,
+        const result = await this._executeAttackStrike(weapon, "auto", target, {...options, durabilityCost: payWith === "hp" ? 0 : dc, combatArt: true, strikeLabel: payWith === "hp" && dc ? `${art.name} (${dc} HP)` : art.name, targetCanCounter: false,
             modifiers: {might: Number(art.system.might || 0), hit: Number(art.system.hit || 0), crit: Number(art.system.crit || 0), source: art.name}});
         await completeMajorAction(this.actor, {...options, attacked: true});
         await finishCombatEffects(this.actor, target, Array.isArray(result) ? result : [result], options);
@@ -2859,10 +2917,29 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         const hp = Number(this.actor.system.attributes?.hp?.value) || 0;
         return new Promise(resolve => {
             let choice = null;
-            new Dialog({title: `${art.name} — Cost`, content: `<p>Pay for <b>${_escapeTokenActionHtml(art.name)}</b> with <b>${cost}</b> durability from ${_escapeTokenActionHtml(weapon.name)} (${formatUses(weapon.system.uses)}) or <b>${cost} HP</b> (${hp} HP)?</p>`,
-                buttons: {durability: {label: `${cost} durability`, callback: () => { choice = "durability"; }},
-                    hp: {label: `${cost} HP`, callback: () => { choice = "hp"; }}, cancel: {label: "Cancel"}},
-                default: "durability", close: () => resolve(choice)}).render(true);
+            new FiresOfWarDialog({
+                window: { title: `${art.name} - Cost` },
+                content: `<p>Pay for <b>${_escapeTokenActionHtml(art.name)}</b> with <b>${cost}</b> durability from ${_escapeTokenActionHtml(weapon.name)} (${formatUses(weapon.system.uses)}) or <b>${cost} HP</b> (${hp} HP)?</p>`,
+                buttons: [
+                    {
+                        action: "durability",
+                        default: true,
+                        label: `${cost} durability`,
+                        callback: () => {
+                            choice = "durability";
+                        }
+                    },
+                    {
+                        action: "hp",
+                        label: `${cost} HP`,
+                        callback: () => {
+                            choice = "hp";
+                        }
+                    },
+                    { action: "cancel", label: "Cancel" }
+                ],
+                close: () => resolve(choice)
+            }).render({force: true});
         });
     }
 
@@ -3069,14 +3146,17 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         if (Number(actor.system.weaponExp || 0) < 1) return ui.notifications.warn("Need 1 WEXP.");
         const opts = Object.entries(FEUE.MASTERY_BONUSES)
             .map(([k, v]) => `<option value="${k}">+${v.step}${v.suffix} ${v.label}</option>`).join("");
-        new Dialog({
-            title: `${FEUE.WeaponTypes[weaponType]} Mastery — Spend 1 WEXP`,
-            content: `<form><p>Choose a permanent bonus when wielding ${FEUE.WeaponTypes[weaponType]} weapons:</p>
-                <div class="form-group"><label>Bonus</label><select id="feue-mastery-pick">${opts}</select></div></form>`,
-            buttons: {
-                spend: {
+        new FiresOfWarDialog({
+            window: { title: `${FEUE.WeaponTypes[weaponType]} Mastery - Spend 1 WEXP` },
+            content: `<div><p>Choose a permanent bonus when wielding ${FEUE.WeaponTypes[weaponType]} weapons:</p>
+                        <div class="form-group"><label>Bonus</label><select id="feue-mastery-pick">${opts}</select></div></div>`,
+            buttons: [
+                {
+                    action: "spend",
+                    default: true,
                     label: "Spend",
-                    callback: async (h) => {
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const stat = h.find("#feue-mastery-pick").val();
                         const spec = FEUE.MASTERY_BONUSES[stat];
                         if (!spec) return;
@@ -3084,7 +3164,11 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                         const ec = actor.items.find(i => i.type === "class" && i.system?.equipped);
                         const node = ec ? actor._getCurrentClassNode(ec) : null;
                         const profCount = Object.values(node?.weaponProficiencies || {}).filter(Boolean).length;
-                        if (normalizeWeaponRank(actor.system.weaponRanks?.[weaponType]) !== "S" || !node?.weaponProficiencies?.[weaponType] || profCount !== 1) {
+                        if (
+                            normalizeWeaponRank(actor.system.weaponRanks?.[weaponType]) !== "S" ||
+                            !node?.weaponProficiencies?.[weaponType] ||
+                            profCount !== 1
+                        ) {
                             return ui.notifications.warn("This weapon no longer qualifies for mastery.");
                         }
                         if (currentWexp < 1) return ui.notifications.warn("Need 1 WEXP.");
@@ -3093,13 +3177,14 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                             [`system.weaponMasteryBonuses.${weaponType}.${stat}`]: cur + spec.step,
                             "system.weaponExp": currentWexp - 1
                         });
-                        ui.notifications.info(`${actor.name}: +${spec.step}${spec.suffix} ${spec.label} with ${FEUE.WeaponTypes[weaponType]}!`);
+                        ui.notifications.info(
+                            `${actor.name}: +${spec.step}${spec.suffix} ${spec.label} with ${FEUE.WeaponTypes[weaponType]}!`
+                        );
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "spend"
-        }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     async _onRepairWeapon(event) {
@@ -3123,32 +3208,36 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         const party = game.actors.find(a => a.type === "party" && (a.system.memberIds || []).includes(this.actor.id));
         const partyGold = party ? Number(party.system.gold || 0) : null;
 
-        new Dialog({
-            title: `Repair ${weapon.name}`,
-            content: `<form>
-                <p>${curUses} / ${maxUses} uses — needs ${missing} repair(s).</p>
-                <div class="form-group"><label>Gold Cost</label><input type="number" id="feue-repair-cost" value="${defaultCost}" readonly/></div>
-                ${party ? `<p>${party.name} has ${partyGold} Gold.</p>` : `<p><i>No party — gold not deducted.</i></p>`}
-            </form>`,
-            buttons: {
-                repair: {
-                    icon: '<i class="fas fa-hammer"></i>', label: "Repair",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: `Repair ${weapon.name}` },
+            content: `<div>
+                        <p>${curUses} / ${maxUses} uses - needs ${missing} repair(s).</p>
+                        <div class="form-group"><label>Gold Cost</label><input type="number" id="feue-repair-cost" value="${defaultCost}" readonly/></div>
+                        ${party ? `<p>${party.name} has ${partyGold} Gold.</p>` : `<p><i>No party - gold not deducted.</i></p>`}
+                    </div>`,
+            buttons: [
+                {
+                    action: "repair",
+                    default: true,
+                    icon: "fas fa-hammer",
+                    label: "Repair",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const cost = defaultCost;
                         const currentPartyGold = party ? Number(party.system.gold || 0) : null;
                         if (party && cost > currentPartyGold) return ui.notifications.warn("Not enough party gold.");
                         if (party && cost > 0) await party.update({ "system.gold": currentPartyGold - cost });
                         await weapon.update({ "system.uses.value": maxUses });
                         ChatMessage.create({
-                            author: game.user.id, speaker: ChatMessage.getSpeaker({ actor: this.actor }),
-                            content: `<div class="feue-repair"><h3>${this.actor.name} repaired ${weapon.name}</h3><p>Uses restored to ${maxUses}/${maxUses}${cost ? ` — ${cost} Gold spent` : ""}.</p></div>`
+                            author: game.user.id,
+                            speaker: ChatMessage.getSpeaker({ actor: this.actor }),
+                            content: `<div class="feue-repair"><h3>${this.actor.name} repaired ${weapon.name}</h3><p>Uses restored to ${maxUses}/${maxUses}${cost ? ` - ${cost} Gold spent` : ""}.</p></div>`
                         });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "repair"
-        }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     _onAddSupport() {
@@ -3165,23 +3254,28 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
 
     _onAddStatusEffect() {
         const opts = FEUE.STATUS_EFFECTS.map(e => `<option value="${e}">${e}</option>`).join("");
-        new Dialog({
-            title: "Add Condition",
-            content: `<form>
-                <div class="form-group"><label>Condition</label><select id="se-name">${opts}<option value="Dead">Dead</option><option value="__custom">Custom...</option></select></div>
-                <div class="form-group" id="se-custom-group" style="display:none;"><label>Custom Name</label><input type="text" id="se-custom" /></div>
-                <div class="form-group" id="se-dur-group"><label>Duration (turns, -1 = indefinite)</label><input type="number" id="se-dur" value="3" min="-1" /></div>
-                <p class="hint" id="se-summary"></p>
-            </form>`,
-            buttons: {
-                add: {
-                    icon: '<i class="fas fa-plus"></i>', label: "Add",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: "Add Condition" },
+            content: `<div>
+                        <div class="form-group"><label>Condition</label><select id="se-name">${opts}<option value="Dead">Dead</option><option value="__custom">Custom...</option></select></div>
+                        <div class="form-group" id="se-custom-group" style="display:none;"><label>Custom Name</label><input type="text" id="se-custom" /></div>
+                        <div class="form-group" id="se-dur-group"><label>Duration (turns, -1 = indefinite)</label><input type="number" id="se-dur" value="3" min="-1" /></div>
+                        <p class="hint" id="se-summary"></p>
+                    </div>`,
+            buttons: [
+                {
+                    action: "add",
+                    default: true,
+                    icon: "fas fa-plus",
+                    label: "Add",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         let name = h.find("#se-name").val();
-                        if (name === "Dead") return this.actor.toggleStatusEffect(DEAD_STATUS, {active: true, overlay: true});
+                        if (name === "Dead") return this.actor.toggleStatusEffect(DEAD_STATUS, { active: true, overlay: true });
                         if (name === "__custom") name = h.find("#se-custom").val()?.trim();
                         if (!name) return;
-                        if (statusImmune(this.actor, name)) return ui.notifications.warn(`${this.actor.name} is immune to ${name}.`);
+                        if (statusImmune(this.actor, name))
+                            return ui.notifications.warn(`${this.actor.name} is immune to ${name}.`);
                         const dur = Number(h.find("#se-dur").val()) || 3;
                         // Rulebook conditions replace an earlier copy; their token icon follows the Conditions list.
                         if (STATUS_RULES[name.toLowerCase()]) return setCondition(this.actor, name, dur);
@@ -3190,15 +3284,18 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                         await this.actor.update({ "system.statusEffects": statuses });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "add",
-            render: (h) => {
+                { action: "cancel", label: "Cancel" }
+            ],
+            render: (event, dialog) => {
+                const h = $(dialog.element);
                 const defaults = () => {
-                    const name = String(h.find("#se-name").val()), rule = STATUS_RULES[name.toLowerCase()];
+                    const name = String(h.find("#se-name").val()),
+                        rule = STATUS_RULES[name.toLowerCase()];
                     if (rule) h.find("#se-dur").val(rule.duration);
                     h.find("#se-dur-group").toggle(name !== "Dead");
-                    h.find("#se-summary").text(name === "Dead" ? "Slain: defeated in the encounter. Lasts until removed." : rule?.summary ?? "");
+                    h.find("#se-summary").text(
+                        name === "Dead" ? "Slain: defeated in the encounter. Lasts until removed." : (rule?.summary ?? "")
+                    );
                 };
                 h.find("#se-name").change(ev => {
                     h.find("#se-custom-group").toggle(ev.currentTarget.value === "__custom");
@@ -3206,7 +3303,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
                 });
                 defaults();
             }
-        }).render(true);
+        }).render({force: true});
     }
 
     async _onRemoveStatusEffect(idx) {
@@ -3227,7 +3324,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
     async _useItem(item, {consume = true, ...options} = {}) {
         if (!options.actionLocked) return withUnitActionLock(() => this._useItem(item, {...options, consume, actionLocked: true}));
         if (!item || item.type !== "item") return;
-        if (item.system.itemType === "miscellaneous") return item.sheet?.render(true);
+        if (item.system.itemType === "miscellaneous") return item.sheet?.render({force: true});
 
         const uses = consume && !hasInfiniteUses(item.system.uses) ? item.system.uses : null;
         if (uses && uses.value <= 0) {
@@ -3336,40 +3433,52 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
 
     _chooseClassChange(item, mode) {
         const choices = this.actor.classChangeChoices(mode), reclass = mode === "reclass";
-        return new Promise(resolve => new Dialog({
-            title: `${item.name}: ${reclass ? "Reclass" : "Promote"}`,
+        return new Promise(resolve => new FiresOfWarDialog({
+            window: { title: `${item.name}: ${reclass ? "Reclass" : "Promote"}` },
             content: `<p>${reclass ? `Choose the class ${esc(this.actor.name)} changes to. Stats and weapon ranks are preserved.` : `Choose ${esc(this.actor.name)}'s promotion. The level resets to 1.`} This uses ${esc(item.name)}.</p>
-                <div class="form-group"><select class="feue-class-change-choice" style="width:100%;">${choices.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</select></div>`,
-            buttons: {
-                use: { icon: '<i class="fas fa-arrow-up"></i>', label: reclass ? "Reclass" : "Promote", callback: html => resolve(html.find(".feue-class-change-choice").val() || null) },
-                cancel: { label: "Cancel", callback: () => resolve(null) }
-            },
-            default: "use",
+                        <div class="form-group"><select class="feue-class-change-choice" style="width:100%;">${choices.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</select></div>`,
+            buttons: [
+                {
+                    action: "use",
+                    default: true,
+                    icon: "fas fa-arrow-up",
+                    label: reclass ? "Reclass" : "Promote",
+                    callback: (event, button, dialog) => {
+                        const html = $(dialog.element);
+                        return resolve(html.find(".feue-class-change-choice").val() || null);
+                    }
+                },
+                { action: "cancel", label: "Cancel", callback: () => resolve(null) }
+            ],
             close: () => resolve(null)
-        }).render(true));
+        }).render({force: true}));
     }
 
     async _onAwardXp() {
-        new Dialog({
-            title: `Award XP to ${this.actor.name}`,
-            content: `<form><div class="form-group"><label>XP Amount</label><input type="number" id="xp-amount" value="10" min="1"/></div></form>`,
-            buttons: {
-                award: {
-                    icon: '<i class="fas fa-star"></i>', label: "Award",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: `Award XP to ${this.actor.name}` },
+            content: `<div><div class="form-group"><label>XP Amount</label><input type="number" id="xp-amount" value="10" min="1"/></div></div>`,
+            buttons: [
+                {
+                    action: "award",
+                    default: true,
+                    icon: "fas fa-star",
+                    label: "Award",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const amount = Number(h.find("#xp-amount").val()) || 0;
                         if (amount <= 0) return;
                         await FEUEParty.awardXp([this.actor.id], amount);
                         ChatMessage.create({
-                            author: game.user.id, speaker: ChatMessage.getSpeaker({ actor: this.actor }),
+                            author: game.user.id,
+                            speaker: ChatMessage.getSpeaker({ actor: this.actor }),
                             content: `<div class="feue-party-xp"><h3>${this.actor.name}: +${amount} XP</h3></div>`
                         });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "award"
-        }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ]
+        }).render({force: true});
     }
 
     async _onItemCreate(event) {
@@ -3381,7 +3490,7 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
 
         const createBlank = async () => {
             const [created] = await this.actor.createEmbeddedDocuments("Item", [{ name: `New ${game.i18n.localize(CONFIG.Item.typeLabels?.[type] ?? type)}`, type }]);
-            created?.sheet.render(true);
+            created?.sheet.render({force: true});
             return created;
         };
         if (type === "class") return openClassPicker(this.actor, {onBlank: createBlank});
@@ -3434,24 +3543,23 @@ class FiresOfWarItem extends Item {
     }
 }
 
-class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
+class FiresOfWarItemSheet extends FiresOfWarSheetMixin(foundry.applications.sheets.ItemSheetV2) {
     static _promotionClipboard = null;
-    static get defaultOptions() {
-        return foundry.utils.mergeObject(super.defaultOptions, {
-            classes: ["feue", "sheet", "item"], template: "systems/fires-of-war/templates/item/item-sheet.html",
-            width: 600, height: 700, scrollY: [".sheet-body"],
-            tabs: [{ navSelector: ".sheet-tabs", contentSelector: ".sheet-body", initial: "description" }]
-        });
-    }
+    static DEFAULT_OPTIONS = {
+        classes: ["feue", "sheet", "item"],
+        position: {width: 600, height: 700}
+    };
 
-    async getData() {
-        const data = this._getSheetData();
-        if (this.item.type === "spell") data.admixWeapons = await admixWeaponOptions();
-        return data;
-    }
+    static PARTS = {
+        sheet: {template: "systems/fires-of-war/templates/item/item-sheet.html", scrollable: [".sheet-body"]}
+    };
 
-    _getSheetData() {
-        const data = super.getData();
+    static TABS = {
+        primary: {initial: "description", tabs: ["description", "weapon", "spell", "item", "skill", "combatArt", "battalion", "class", "miscBonus"].map(id => ({id}))}
+    };
+
+    async _prepareContext(options) {
+        const data = await super._prepareContext(options);
         data.FEUE = FEUE;
         if (this.item.type === "skill") {
             const info = skillAutomationInfo(this.item, activeSkillRule(this.item));
@@ -3463,7 +3571,7 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
         data.classChangeEnabled = t === "item" && classChangeItemsEnabled();
         if (data.classChangeEnabled) {
             const config = classChangeConfig(this.item), reclassing = !!game.settings.get("fires-of-war", "useReclassing");
-            data.classChange = {...config, listId: `feue-class-names-${this.appId}`, isPromote: config.mode === "promote",
+            data.classChange = {...config, listId: `feue-class-names-${this.id}`, isPromote: config.mode === "promote",
                 modes: [["", "None"], ["promote", "Promotes the listed classes"], ["master", "Promotes any class (Master Seal)"],
                     ...(reclassing || config.mode === "reclass" ? [["reclass", `Changes to an alternate class (Second Seal)${reclassing ? "" : " — Reclassing is off"}`]] : [])]
                     .map(([value, label]) => ({value, label, selected: value === config.mode})),
@@ -3524,13 +3632,13 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
                 this.item.update(update);
             }
         }
+        if (this.item.type === "spell") data.admixWeapons = await admixWeaponOptions();
         return data;
     }
 
-    activateListeners(html) {
-        super.activateListeners(html);
+    _bindSheetListeners(html) {
         // The promotion tree is drawn for read-only (e.g. compendium) class sheets too.
-        if (this.item.type === "class" && !this.options.editable) {
+        if (this.item.type === "class" && !this.isEditable) {
             this._renderPromotionTree(html);
             html.find(".promo-tree-row a").remove();
         }
@@ -3548,7 +3656,7 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
             if (expanded) this._expandedBonuses.add(key); else this._expandedBonuses.delete(key);
             showBonuses(section, expanded);
         });
-        if (!this.options.editable) return;
+        if (!this.isEditable) return;
         const changeConfig = html.find(".feue-class-change-config")[0];
         if (changeConfig) {
             const classes = () => [...classChangeConfig(this.item).classes];
@@ -3619,7 +3727,7 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
             html.on("click", ".promo-add-sub", (ev) => this._addPromotion($(ev.currentTarget).data("path").toString().split(",")));
             html.on("click", ".promo-edit", (ev) => this._editPromotion($(ev.currentTarget).data("path").toString().split(",")));
             html.on("click", ".promo-delete", async (ev) => {
-                const ok = await Dialog.confirm({ title: "Delete Promotion", content: "<p>Delete this promotion and all sub-promotions?</p>" });
+                const ok = await FiresOfWarDialog.confirm({ window: {title: "Delete Promotion"}, yes: {default: true}, no: {default: false}, content: "<p>Delete this promotion and all sub-promotions?</p>" });
                 if (ok) this._deletePromotion($(ev.currentTarget).data("path").toString().split(","));
             });
             html.on("click", ".promo-copy", (ev) => {
@@ -3670,10 +3778,13 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
     }
 
     /** Each edit saves only its own field through _saveField. Also submitting the whole form saved and re-rendered the sheet twice per edit. */
-    _onChangeInput(event) { return this._saveField(event); }
+    _onChangeForm(formConfig, event) {
+        if (!this.isEditable) return;
+        return this._saveField(event);
+    }
 
     async _saveField(ev) {
-        const el = ev.currentTarget;
+        const el = ev.target;
         if (!el.name) return;
         let value = el.value;
         if (el.dataset.dtype === "Number") { const n = Number(value); value = Number.isFinite(n) ? n : null; }
@@ -3736,8 +3847,6 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
         }
         await this.item.update(update);
     }
-
-    async _updateObject(event, formData) { return await this.object.update(foundry.utils.expandObject(formData)); }
 
     // ── PROMOTION TREE ──
 
@@ -3925,56 +4034,93 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
         };
 
         const types = FEUE.CLASS_TYPES.filter(t => ["Standard", "Promoted"].includes(t) || t === promo.classType);
-        new Dialog({
-            title: `Edit Promotion: ${promo.name}`,
-            content: `<form class="feue-class-sheet feue-promo-form">
-                <section class="feue-class-block feue-class-overview feue-promo-overview">
-                    <label class="feue-promo-name"><span>Name</span><input type="text" id="pn" value="${_escapeTokenActionHtml(promo.name)}"/></label>
-                    <label><span>Class type</span><select id="pct">${types.map(t => `<option value="${t}" ${promo.classType === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-                    <label><span>Max level</span><input type="number" id="pml" value="${promo.maxLevel || 20}" min="1" max="40"/></label>
-                    <label><span>Movement</span><input type="number" id="pmv" value="${promo.movement || 5}" min="0"/></label>
-                </section>
-                ${classChipsHtml(promo, {named: false})}
-                <section class="feue-class-block"><h4>Stats</h4>${classStatTableHtml(promo, {named: false})}
-                    <p class="feue-class-hint">For a Promoted class the first row is the bonus added once on promotion.</p></section>
-                <section class="feue-class-block class-skills-section"><h4>Class Skills <small>Drag &amp; drop skill items here</small></h4>
-                    <div class="promo-skills-drop"><div class="promo-skills-list class-skills-list">${buildSkillListHTML(promoSkills)}</div></div></section>
-                <section class="feue-class-block class-roleplay-traits-section"><h4>Roleplay Traits <small>Each optional trait replaces the base trait beside it</small></h4>
-                    <div class="class-roleplay-traits-grid"><b>Base trait</b><b>Optional replacement</b>${promoTraitRows}</div></section>
-                </form>`,
-            buttons: {
-                save: {
-                    icon: '<i class="fas fa-save"></i>', label: "Save", callback: (h) => {
+        new FiresOfWarDialog({
+            window: { title: `Edit Promotion: ${promo.name}`, resizable: true },
+            position: { width: 640, height: 720 },
+            content: `<div class="feue-class-sheet feue-promo-form">
+                        <section class="feue-class-block feue-class-overview feue-promo-overview">
+                            <label class="feue-promo-name"><span>Name</span><input type="text" id="pn" value="${_escapeTokenActionHtml(promo.name)}"/></label>
+                            <label><span>Class type</span><select id="pct">${types.map(t => `<option value="${t}" ${promo.classType === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+                            <label><span>Max level</span><input type="number" id="pml" value="${promo.maxLevel || 20}" min="1" max="40"/></label>
+                            <label><span>Movement</span><input type="number" id="pmv" value="${promo.movement || 5}" min="0"/></label>
+                        </section>
+                        ${classChipsHtml(promo, { named: false })}
+                        <section class="feue-class-block"><h4>Stats</h4>${classStatTableHtml(promo, { named: false })}
+                            <p class="feue-class-hint">For a Promoted class the first row is the bonus added once on promotion.</p></section>
+                        <section class="feue-class-block class-skills-section"><h4>Class Skills <small>Drag &amp; drop skill items here</small></h4>
+                            <div class="promo-skills-drop"><div class="promo-skills-list class-skills-list">${buildSkillListHTML(promoSkills)}</div></div></section>
+                        <section class="feue-class-block class-roleplay-traits-section"><h4>Roleplay Traits <small>Each optional trait replaces the base trait beside it</small></h4>
+                            <div class="class-roleplay-traits-grid"><b>Base trait</b><b>Optional replacement</b>${promoTraitRows}</div></section>
+                        </div>`,
+            buttons: [
+                {
+                    action: "save",
+                    default: true,
+                    icon: "fas fa-save",
+                    label: "Save",
+                    callback: (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const d = {
-                            id: promo.id, name: h.find("#pn").val() || "Unnamed", classType: h.find("#pct").val(), maxLevel: Number(h.find("#pml").val()) || 20, movement: Number(h.find("#pmv").val()) || 5,
-                            unitTypes: {}, weaponProficiencies: {}, baseStats: {}, growthRates: {}, statCaps: {}, classSkills: promoSkills, roleplayTraits: [], promotions: promo.promotions || []
+                            id: promo.id,
+                            name: h.find("#pn").val() || "Unnamed",
+                            classType: h.find("#pct").val(),
+                            maxLevel: Number(h.find("#pml").val()) || 20,
+                            movement: Number(h.find("#pmv").val()) || 5,
+                            unitTypes: {},
+                            weaponProficiencies: {},
+                            baseStats: {},
+                            growthRates: {},
+                            statCaps: {},
+                            classSkills: promoSkills,
+                            roleplayTraits: [],
+                            promotions: promo.promotions || []
                         };
-                        h.find("input[type='number'][data-key]").each((_, el) => { const [g, s] = el.dataset.key.split("."); const map = { bs: "baseStats", gr: "growthRates", sc: "statCaps" }; d[map[g]][s] = Number(el.value) || 0; });
-                        h.find("input[type='checkbox'][data-key^='ut.']").each((_, el) => { const key = el.dataset.key.slice(3); d.unitTypes[key] = el.checked; });
-                        h.find("input[type='checkbox'][data-key^='wp.']").each((_, el) => { const key = el.dataset.key.slice(3); d.weaponProficiencies[key] = el.checked; });
+                        h.find("input[type='number'][data-key]").each((_, el) => {
+                            const [g, s] = el.dataset.key.split(".");
+                            const map = { bs: "baseStats", gr: "growthRates", sc: "statCaps" };
+                            d[map[g]][s] = Number(el.value) || 0;
+                        });
+                        h.find("input[type='checkbox'][data-key^='ut.']").each((_, el) => {
+                            const key = el.dataset.key.slice(3);
+                            d.unitTypes[key] = el.checked;
+                        });
+                        h.find("input[type='checkbox'][data-key^='wp.']").each((_, el) => {
+                            const key = el.dataset.key.slice(3);
+                            d.weaponProficiencies[key] = el.checked;
+                        });
                         h.find("input[data-roleplay-field='base']").each((_, el) => {
                             const index = Number(el.dataset.roleplayIndex);
                             d.roleplayTraits[index] = {
                                 base: el.value.trim(),
-                                alternative: h.find(`input[data-roleplay-index='${index}'][data-roleplay-field='alternative']`).val()?.trim() || ""
+                                alternative:
+                                    h
+                                        .find(`input[data-roleplay-index='${index}'][data-roleplay-field='alternative']`)
+                                        .val()
+                                        ?.trim() || ""
                             };
                         });
-                        onSave(d);
+                        return onSave(d);
                     }
-                }, cancel: { label: "Cancel" }
-            }, default: "save",
-            render: (h) => {
+                },
+                { action: "cancel", label: "Cancel" }
+            ],
+            render: (event, dialog) => {
+                const h = $(dialog.element);
                 // ── Existing: Class type change toggles base stats visibility ──
                 h.find("#pct").change(ev => h.find(".feue-base-label").text(baseStatLabel(ev.currentTarget.value)));
 
                 // ── Skills: drop zone ──
                 const dropZone = h.find(".promo-skills-drop")[0];
                 if (dropZone) {
-                    dropZone.addEventListener("dragover", (e) => e.preventDefault());
-                    dropZone.addEventListener("drop", async (e) => {
+                    dropZone.addEventListener("dragover", e => e.preventDefault());
+                    dropZone.addEventListener("drop", async e => {
                         e.preventDefault();
                         let data;
-                        try { data = JSON.parse(e.dataTransfer.getData("text/plain")); } catch { return; }
+                        try {
+                            data = JSON.parse(e.dataTransfer.getData("text/plain"));
+                        } catch {
+                            return;
+                        }
                         if (data.type !== "Item") return;
                         const item = await Item.implementation.fromDropData(data);
                         if (!item || item.type !== "skill") {
@@ -4000,21 +4146,26 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
                 }
 
                 // ── Skills: level change & remove ──
-                const bindSkillListEvents = (html) => {
-                    html.find(".promo-skill-level").off("change").on("change", (ev) => {
-                        const idx = Number($(ev.currentTarget).data("skill-idx"));
-                        if (promoSkills[idx]) promoSkills[idx].level = ev.currentTarget.value;
-                    });
-                    html.find(".promo-skill-remove").off("click").on("click", (ev) => {
-                        const idx = Number($(ev.currentTarget).data("skill-idx"));
-                        promoSkills.splice(idx, 1);
-                        html.find(".promo-skills-list").html(buildSkillListHTML(promoSkills));
-                        bindSkillListEvents(html);
-                    });
+                const bindSkillListEvents = html => {
+                    html.find(".promo-skill-level")
+                        .off("change")
+                        .on("change", ev => {
+                            const idx = Number($(ev.currentTarget).data("skill-idx"));
+                            if (promoSkills[idx]) promoSkills[idx].level = ev.currentTarget.value;
+                        });
+                    html.find(".promo-skill-remove")
+                        .off("click")
+                        .on("click", ev => {
+                            const idx = Number($(ev.currentTarget).data("skill-idx"));
+                            promoSkills.splice(idx, 1);
+                            html.find(".promo-skills-list").html(buildSkillListHTML(promoSkills));
+                            bindSkillListEvents(html);
+                        });
                 };
                 bindSkillListEvents(h);
             },
-        }, { classes: ["dialog", "feue-promo-editor"], width: 640, height: 720, resizable: true }).render(true);
+            classes: ["dialog", "feue-promo-editor"]
+        }).render({force: true});
     }
 
     async _onDropClassSkill(event) {
@@ -4057,22 +4208,20 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
 // ====================================================================
 // 4b. PARTY SHEET
 // ====================================================================
-class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
-    async _updateObject(event, formData) {
-        const name = event?.type === "change" ? event.currentTarget?.name : null;
-        return super._updateObject(event, name && name in formData ? {[name]: formData[name]} : formData);
-    }
+class FiresOfWarPartySheet extends FiresOfWarSheetMixin(foundry.applications.sheets.ActorSheetV2) {
 
-    static get defaultOptions() {
-        return foundry.utils.mergeObject(super.defaultOptions, {
-            classes: ["feue", "sheet", "actor", "party"],
-            template: "systems/fires-of-war/templates/actor/party-sheet.html",
-            width: 620, height: 680, scrollY: [".sheet-body"]
-        });
-    }
 
-    getData() {
-        const data = super.getData();
+    static DEFAULT_OPTIONS = {
+        classes: ["feue", "sheet", "actor", "party"],
+        position: {width: 620, height: 680}
+    };
+
+    static PARTS = {
+        sheet: {template: "systems/fires-of-war/templates/actor/party-sheet.html", scrollable: [".sheet-body"]}
+    };
+
+    async _prepareContext(options) {
+        const data = await super._prepareContext(options);
         const memberIds = this.actor.system.memberIds || [];
         data.members = memberIds
             .map(id => game.actors.get(id))
@@ -4095,8 +4244,10 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
         return data;
     }
 
-    _disableFields(form) {
-        super._disableFields(form);
+    _toggleDisabled(disabled) {
+        super._toggleDisabled(disabled);
+        const form = this.form;
+        if (!form) return;
         const data = convoySheetData(this.actor, this._convoyUnitUuid);
         const set = (selector, disabled) => form.querySelectorAll(selector).forEach(control => { control.disabled = disabled; });
         set(".party-convoy-unit", !data.units.length);
@@ -4108,19 +4259,13 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
 
     _canDragDrop(selector) { return super._canDragDrop(selector) || convoyUnits(this.actor).length > 0; }
 
-    _onChangeInput(event) {
-        if (!event.currentTarget?.name) return;
-        return super._onChangeInput(event);
-    }
-
-    activateListeners(html) {
-        super.activateListeners(html);
+    _bindSheetListeners(html) {
         bindConvoySheet(this, html);
-        if (!this.options.editable) return;
+        if (!this.isEditable) return;
 
         html.find(".party-member-open").click(ev => {
             const id = $(ev.currentTarget).closest(".party-member").data("actor-id");
-            game.actors.get(id)?.sheet.render(true);
+            game.actors.get(id)?.sheet.render({force: true});
         });
 
         html.find(".party-member-remove").click(async ev => {
@@ -4192,18 +4337,26 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
         const isThief = /thief/i.test(className) || /thief/i.test(ec?.name || "");
 
         return new Promise(resolve => {
-            new Dialog({
-                title: `Starting Package — ${actor.name}`,
-                content: `<form>
-                    <p>Choose an E-Rank weapon for <b>${actor.name}</b>.</p>
-                    ${choices.length ? `<div class="form-group"><label>Weapon</label><select id="feue-sp-weapon" style="width:100%;">${opts}</select></div>`
-                    : `<p><i>No E-Rank weapons found in compendiums.</i></p>`}
-                    <p>Also grants: Vulnerary${isThief ? " + Lockpick" : ""}.</p>
-                </form>`,
-                buttons: {
-                    grant: {
-                        icon: '<i class="fas fa-gift"></i>', label: "Grant",
-                        callback: async (h) => {
+            new FiresOfWarDialog({
+                window: { title: `Starting Package - ${actor.name}` },
+                position: { width: 420 },
+                content: `<div>
+                                <p>Choose an E-Rank weapon for <b>${actor.name}</b>.</p>
+                                ${
+                                    choices.length
+                                        ? `<div class="form-group"><label>Weapon</label><select id="feue-sp-weapon" style="width:100%;">${opts}</select></div>`
+                                        : `<p><i>No E-Rank weapons found in compendiums.</i></p>`
+                                }
+                                <p>Also grants: Vulnerary${isThief ? " + Lockpick" : ""}.</p>
+                            </div>`,
+                buttons: [
+                    {
+                        action: "grant",
+                        default: true,
+                        icon: "fas fa-gift",
+                        label: "Grant",
+                        callback: async (event, button, dialog) => {
+                            const h = $(dialog.element);
                             const log = [];
                             const weaponUuid = h.find("#feue-sp-weapon").val();
                             if (weaponUuid) {
@@ -4222,18 +4375,19 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
                             }
                             if (log.length) {
                                 ChatMessage.create({
-                                    author: game.user.id, speaker: ChatMessage.getSpeaker({ actor }),
-                                    content: `<div class="feue-starting-package"><h3>${actor.name} — Starting Package</h3><p>Received: ${log.join(", ")}.</p></div>`
+                                    author: game.user.id,
+                                    speaker: ChatMessage.getSpeaker({ actor }),
+                                    content: `<div class="feue-starting-package"><h3>${actor.name} - Starting Package</h3><p>Received: ${log.join(", ")}.</p></div>`
                                 });
                             }
                             resolve();
                         }
                     },
-                    skip: { label: "Skip", callback: () => resolve() }
-                },
-                default: "grant",
-                close: () => resolve()
-            }, { classes: ["dialog", "feue-gba-dialog"], width: 420 }).render(true);
+                    { action: "skip", label: "Skip", callback: () => resolve() }
+                ],
+                close: () => resolve(),
+                classes: ["dialog", "feue-gba-dialog"]
+            }).render({force: true});
         });
     }
 
@@ -4268,75 +4422,79 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
             .filter(a => a && a.type === "character");
         if (!members.length) return ui.notifications.warn("No party members to award XP.");
 
-        new Dialog({
-            title: "Award XP to All Party Members",
-            content: `<form><div class="form-group"><label for="party-xp-amount">XP per character</label><input type="number" id="party-xp-amount" value="10" min="1"/></div><p class="hint">Will award to ${members.length} member(s).</p></form>`,
-            buttons: {
-                award: {
-                    icon: '<i class="fas fa-star"></i>', label: "Award",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: "Award XP to All Party Members" },
+            position: { width: 360 },
+            content: `<div><div class="form-group"><label for="party-xp-amount">XP per character</label><input type="number" id="party-xp-amount" value="10" min="1"/></div><p class="hint">Will award to ${members.length} member(s).</p></div>`,
+            buttons: [
+                {
+                    action: "award",
+                    default: true,
+                    icon: "fas fa-star",
+                    label: "Award",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const amount = Number(h.find("#party-xp-amount").val()) || 0;
                         if (amount <= 0) return;
-                        await FEUEParty.awardXp(members.map(m => m.id), amount);
+                        await FEUEParty.awardXp(
+                            members.map(m => m.id),
+                            amount
+                        );
                         ChatMessage.create({
                             author: game.user.id,
                             content: `<div class="feue-party-xp"><h3>${this.actor.name}: +${amount} XP</h3><p>Awarded to: ${members.map(m => m.name).join(", ")}</p></div>`
                         });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "award"
-        }, { classes: ["dialog", "feue-gba-dialog"], width: 360 }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ],
+            classes: ["dialog", "feue-gba-dialog"]
+        }).render({force: true});
     }
 
     async _onAdjustGold(amount) {
         amount = Number(amount);
         if (!amount) return;
         const sign = amount > 0 ? "+" : "";
-        new Dialog({
-            title: `${sign}${amount} Gold`,
-            content: `<form><div class="form-group"><label for="party-gold-amount">Amount</label><input type="number" id="party-gold-amount" value="${Math.abs(amount)}" min="1"/></div></form>`,
-            buttons: {
-                ok: {
+        new FiresOfWarDialog({
+            window: { title: `${sign}${amount} Gold` },
+            position: { width: 320 },
+            content: `<div><div class="form-group"><label for="party-gold-amount">Amount</label><input type="number" id="party-gold-amount" value="${Math.abs(amount)}" min="1"/></div></div>`,
+            buttons: [
+                {
+                    action: "ok",
+                    default: true,
                     label: "Apply",
-                    callback: async (h) => {
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         const v = Number(h.find("#party-gold-amount").val()) || 0;
                         const delta = amount > 0 ? v : -v;
                         await FEUEParty.adjustGold(this.actor.id, delta);
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "ok"
-        }, { classes: ["dialog", "feue-gba-dialog"], width: 320 }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ],
+            classes: ["dialog", "feue-gba-dialog"]
+        }).render({force: true});
     }
 }
 
 // ====================================================================
 // 4c. SHOP SHEET
 // ====================================================================
-class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
-    async _updateObject(event, formData) {
-        const name = event?.type === "change" ? event.currentTarget?.name : null;
-        return super._updateObject(event, name && name in formData ? {[name]: formData[name]} : formData);
-    }
+class FiresOfWarShopSheet extends FiresOfWarSheetMixin(foundry.applications.sheets.ActorSheetV2) {
 
-    _onChangeInput(event) {
-        if (!event.currentTarget?.name) return;
-        return super._onChangeInput(event);
-    }
+    static DEFAULT_OPTIONS = {
+        classes: ["feue", "sheet", "actor", "shop"],
+        position: {width: 700, height: 650}
+    };
 
-    static get defaultOptions() {
-        return foundry.utils.mergeObject(super.defaultOptions, {
-            classes: ["feue", "sheet", "actor", "shop"],
-            template: "systems/fires-of-war/templates/actor/shop-sheet.html",
-            width: 700, height: 650, scrollY: [".sheet-body"]
-        });
-    }
+    static PARTS = {
+        sheet: {template: "systems/fires-of-war/templates/actor/shop-sheet.html", scrollable: [".sheet-body"]}
+    };
 
-    getData() {
-        const data = super.getData();
+    async _prepareContext(options) {
+        const data = await super._prepareContext(options);
         data.isGM = game.user.isGM;
         const buyMult = Number(this.actor.system.buyMultiplier ?? 1);
         const sellMult = Number(this.actor.system.sellMultiplier ?? 0.5);
@@ -4369,14 +4527,15 @@ class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
     }
 
     /** Players who do not own the shop still sell to it; the GM checks each sale. */
-    _disableFields(form) {
-        super._disableFields(form);
+    _toggleDisabled(disabled) {
+        super._toggleDisabled(disabled);
+        const form = this.form;
+        if (!form) return;
         form.querySelectorAll(".shop-open-sell").forEach(button => { button.disabled = false; });
     }
 
-    activateListeners(html) {
-        super.activateListeners(html);
-        if (!this.options.editable && !game.user.isGM) {
+    _bindSheetListeners(html) {
+        if (!this.isEditable && !game.user.isGM) {
             // Players still need buy/sell listeners
         }
 
@@ -4407,7 +4566,7 @@ class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
 
         html.find(".shop-item-edit").click(ev => {
             const id = $(ev.currentTarget).closest(".shop-item").data("item-id");
-            this.actor.items.get(id)?.sheet.render(true);
+            this.actor.items.get(id)?.sheet.render({force: true});
         });
 
         html.find(".shop-item-delete").click(async ev => {
@@ -4459,31 +4618,38 @@ class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
         const buyMult = Number(this.actor.system.buyMultiplier ?? 1);
         const price = Math.floor(effectivePrice(item) * buyMult);
 
-        // Dialog buttons stay clickable while the dialog closes; buy once.
         let requested = false;
-        new Dialog({
-            title: `Buy ${item.name}`,
-            content: `<form>
-                <div class="feue-shop-deal"><img src="${esc(item.img)}" alt="" /><strong>${esc(item.name)}</strong></div>
-                <dl class="feue-shop-totals"><dt>Price</dt><dd>${price}g</dd><dt>Party gold</dt><dd>${party.system.gold || 0}g</dd></dl>
-                <div class="form-group"><label for="buy-character">For character</label><select id="buy-character">${opts}</select></div>
-            </form>`,
-            buttons: {
-                buy: {
-                    icon: '<i class="fas fa-coins"></i>', label: "Buy",
-                    callback: async (h) => {
+        new FiresOfWarDialog({
+            window: { title: `Buy ${item.name}` },
+            position: { width: 360 },
+            content: `<div>
+                        <div class="feue-shop-deal"><img src="${esc(item.img)}" alt="" /><strong>${esc(item.name)}</strong></div>
+                        <dl class="feue-shop-totals"><dt>Price</dt><dd>${price}g</dd><dt>Party gold</dt><dd>${party.system.gold || 0}g</dd></dl>
+                        <div class="form-group"><label for="buy-character">For character</label><select id="buy-character">${opts}</select></div>
+                    </div>`,
+            buttons: [
+                {
+                    action: "buy",
+                    default: true,
+                    icon: "fas fa-coins",
+                    label: "Buy",
+                    callback: async (event, button, dialog) => {
+                        const h = $(dialog.element);
                         if (requested) return;
                         requested = true;
                         const characterId = h.find("#buy-character").val();
                         await FEUEShop.requestBuy({
-                            shopId: this.actor.id, itemId, characterId, partyId
+                            shopId: this.actor.id,
+                            itemId,
+                            characterId,
+                            partyId
                         });
                     }
                 },
-                cancel: { label: "Cancel" }
-            },
-            default: "buy"
-        }, { classes: ["dialog", "feue-gba-dialog"], width: 360 }).render(true);
+                { action: "cancel", label: "Cancel" }
+            ],
+            classes: ["dialog", "feue-gba-dialog"]
+        }).render({force: true});
     }
 
     async _onOpenSell() {
@@ -4512,24 +4678,29 @@ class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
         }
         if (!rows.length) return ui.notifications.warn("No sellable items in the party.");
 
-        const dlg = new Dialog({
-            title: `Sell to ${this.actor.name}`,
+        const dlg = new FiresOfWarDialog({
+            window: { title: `Sell to ${this.actor.name}` },
+            position: { width: 520 },
             content: `<table class="feue-sell-table"><thead><tr><th>Owner</th><th>Item</th><th>Price</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table>`,
-            buttons: { close: { label: "Close" } },
-            default: "close",
-            render: (h) => {
-                h.find(".sell-btn").click(async (ev) => {
+            buttons: [{ action: "close", default: true, label: "Close" }],
+            render: (event, dialog) => {
+                const h = $(dialog.element);
+                h.find(".sell-btn").click(async ev => {
                     ev.currentTarget.disabled = true;
                     const actorId = $(ev.currentTarget).data("actor-id");
                     const itemId = $(ev.currentTarget).data("item-id");
                     await FEUEShop.requestSell({
-                        shopId: this.actor.id, partyId, characterId: actorId, itemId
+                        shopId: this.actor.id,
+                        partyId,
+                        characterId: actorId,
+                        itemId
                     });
                     dlg.close();
                 });
-            }
-        }, { classes: ["dialog", "feue-gba-dialog"], width: 520 });
-        dlg.render(true);
+            },
+            classes: ["dialog", "feue-gba-dialog"]
+        });
+        dlg.render({force: true});
     }
 }
 
@@ -4749,17 +4920,19 @@ function openTokenActionMenu(subject) {
         : '<p class="feue-token-action-empty">No actionable Skills available.</p>';
 
     let actionDialog;
-    actionDialog = new Dialog({
-        title: `${actor.name} — Token Actions`,
+    actionDialog = new FiresOfWarDialog({
+        window: { title: `${actor.name} - Token Actions` },
+        position: { width: 420 },
         content: `<div class="feue-token-actions-menu">
-            <p class="feue-token-action-target"><i class="fas fa-bullseye"></i> ${target ? `Target: <b>${_escapeTokenActionHtml(target.name)}</b>` : "No target selected"}</p>
-            <section><h3>Equipped Weapon</h3>${attackRow}</section>
-            <section><h3>Combat Arts</h3>${artRows}</section>
-            <section><h3>Spells</h3>${spellRows}</section>
-            <section><h3>Skills</h3>${skillRows}</section>
-        </div>`,
-        buttons: { close: { label: "Close" } },
-        render: html => {
+                <p class="feue-token-action-target"><i class="fas fa-bullseye"></i> ${target ? `Target: <b>${_escapeTokenActionHtml(target.name)}</b>` : "No target selected"}</p>
+                <section><h3>Equipped Weapon</h3>${attackRow}</section>
+                <section><h3>Combat Arts</h3>${artRows}</section>
+                <section><h3>Spells</h3>${spellRows}</section>
+                <section><h3>Skills</h3>${skillRows}</section>
+            </div>`,
+        buttons: [{ action: "close", label: "Close" }],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
             html.find(".feue-token-action-row:not(:disabled)").click(async event => {
                 event.preventDefault();
                 const button = event.currentTarget;
@@ -4778,12 +4951,14 @@ function openTokenActionMenu(subject) {
                     return sheet._executeCombatArt(item, currentWeapon);
                 }
                 if (action === "spell") return sheet._castSpell(item);
-                if (action === "skill" && !activeSkillRule(item) && item.system?.skillType === "Passive (Activated)") return sheet._rollSkillActivation(item);
+                if (action === "skill" && !activeSkillRule(item) && item.system?.skillType === "Passive (Activated)")
+                    return sheet._rollSkillActivation(item);
                 if (action === "skill") return sheet._useSkill(item).catch(error => ui.notifications.error(error.message));
             });
-        }
-    }, { classes: ["dialog", "feue-token-action-dialog"], width: 420 });
-    actionDialog.render(true);
+        },
+        classes: ["dialog", "feue-token-action-dialog"]
+    });
+    actionDialog.render({force: true});
 }
 
 // ====================================================================
@@ -4800,7 +4975,7 @@ Hooks.once("init", () => {
     Handlebars.registerHelper("lookup", function (obj, key) { return obj?.[key]; });
 
     const _reRenderAll = () => {
-        for (const a of game.actors.filter(x => x.type === "character")) a.sheet?.render(false);
+        for (const a of game.actors.filter(x => x.type === "character")) a.sheet?.render();
     };
 
     game.settings.register("fires-of-war", "automaticCombatDamage", {
@@ -4916,11 +5091,9 @@ Hooks.once("init", () => {
         game.firesOfWar?.tokenIndicators?.refreshAll?.();
     });
 
-    foundry.applications.apps.DocumentSheetConfig.unregisterSheet(Actor, "core", foundry.appv1.sheets.ActorSheet);
     foundry.applications.apps.DocumentSheetConfig.registerSheet(Actor, "fires-of-war", FiresOfWarCharacterSheet, { types: ["character"], makeDefault: true });
     foundry.applications.apps.DocumentSheetConfig.registerSheet(Actor, "fires-of-war", FiresOfWarPartySheet, { types: ["party"], makeDefault: true });
     foundry.applications.apps.DocumentSheetConfig.registerSheet(Actor, "fires-of-war", FiresOfWarShopSheet, { types: ["shop"], makeDefault: true });
-    foundry.applications.apps.DocumentSheetConfig.unregisterSheet(Item, "core", foundry.appv1.sheets.ItemSheet);
     foundry.applications.apps.DocumentSheetConfig.registerSheet(Item, "fires-of-war", FiresOfWarItemSheet, { makeDefault: true });
     CONFIG.Actor.documentClass = FiresOfWarActor;
     CONFIG.Item.documentClass = FiresOfWarItem;
@@ -4931,6 +5104,13 @@ Hooks.once("setup", () => {
 });
 
 Hooks.once("ready", () => {
+    for (const documentClass of [Actor, Item]) {
+        for (const sheets of Object.values(CONFIG[documentClass.documentName].sheetClasses)) {
+            for (const [id, sheet] of Object.entries(sheets)) {
+                if (id.startsWith("core.")) foundry.applications.apps.DocumentSheetConfig.unregisterSheet(documentClass, "core", sheet.cls);
+            }
+        }
+    }
     console.log("FEUE | System Ready");
     game.socket.on(FEUE_SOCKET, _onFeueSocket);
     game.firesOfWar = Object.assign(game.firesOfWar || {}, { openTokenActions: openTokenActionMenu, seedMonsterContent });

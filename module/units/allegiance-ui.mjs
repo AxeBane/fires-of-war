@@ -73,6 +73,4 @@ function addCreationField(app, element) {
 export function registerAllegianceUI() {
     Hooks.once("init", () => game.settings.register(SYSTEM, "lastCreateAllegiance", {scope: "client", config: false, type: String, default: "player"}));
     Hooks.on("renderDialogV2", addCreationField);
-    // v12 still uses the v1 Dialog for document creation.
-    Hooks.on("renderDialog", addCreationField);
 }

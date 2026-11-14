@@ -44,9 +44,10 @@ export const triangleOverride = () => !!setting("weaponTriangleOverride", false)
 // ── Modifying Durability and Risky Combat Arts (p. 177) ──
 export function durabilityMode() {
     const mode = setting("durabilityRule", "standard");
-    return ["remove", "perMap"].includes(mode) ? mode : "standard";
+    return ["remove", "perMap", "combatArtsOnly"].includes(mode) ? mode : "standard";
 }
 const isStaff = item => weaponType(item) === "staff";
+export const combatArtsOnlyDurability = item => item?.type === "weapon" && !isStaff(item) && durabilityMode() === "combatArtsOnly";
 /** Remove Durability: weapons have infinite uses; staves keep theirs. */
 export const durabilityExempt = item => item?.type === "weapon" && !isStaff(item) && durabilityMode() === "remove";
 /** Per-Map Durability: weapons spend durability at the end of each map instead of per attack. */
@@ -175,8 +176,8 @@ export const deathDeferred = actor => pendingRevival(actor) || forcedDismountPen
 export function registerAltRuleSettings(onChange = () => {}) {
     const register = (key, data) => game.settings.register(SYSTEM, key, {scope: "world", config: true, onChange, ...data});
     register("durabilityRule", {name: "Modifying Durability", type: String, default: "standard",
-        hint: "Alt rule. Remove Durability: weapons never lose uses (staves still do), weapon prices double and Combat Arts cost HP. Per-Map Durability: weapons lose 1 per-map durability (5 Uses) at the end of each encounter they were used in, plus each Combat Art's cost ÷ 5 (minimum 1).",
-        choices: {standard: "Standard (per attack)", remove: "Remove Durability", perMap: "Per-Map Durability"}});
+        hint: "Alt rule. Remove Durability: weapons never lose uses (staves still do), weapon prices double and Combat Arts cost HP. Per-Map Durability: weapons lose 1 per-map durability (5 Uses) at the end of each encounter they were used in, plus each Combat Art's cost ÷ 5 (minimum 1). Combat Arts Only: weapons only lose durability when using Combat Arts; standard attacks and counterattacks cost no durability. Staves still spend uses normally.",
+        choices: {standard: "Standard (per attack)", remove: "Remove Durability", perMap: "Per-Map Durability", combatArtsOnly: "Combat Arts Only"}});
     register("riskyCombatArts", {name: "Risky Combat Arts", type: String, default: "durability",
         hint: "Alt rule. HP Cost: Combat Arts cost HP equal to their durability cost. Player's Choice: choose durability or HP each time. Remove Durability always uses HP.",
         choices: {durability: "Off (Combat Arts cost durability)", hp: "HP Cost", choice: "Player's Choice"}});

@@ -1,4 +1,5 @@
 /** The character sheet's Add Support: choose a partner from the world's characters (their Affinity fills in), or add one by name. */
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {chooseFromCatalog} from "../ui/catalog-picker.mjs";
 import {ALLEGIANCE_CHOICES, actorAllegiance} from "./allegiance-ui.mjs";
 import {baseActorId} from "./convoy.mjs";
@@ -21,15 +22,35 @@ const readFields = root => Object.fromEntries([...root.querySelectorAll("[data-f
 function supportByName(actor, config) {
     return new Promise(resolve => {
         let values = null;
-        new Dialog({title: "Add Support Partner", content: `<div class="feue-catalog-picker-body feue-catalog-form">
-                <p class="feue-catalog-hint">For a partner who is not a character in this world.</p>${supportFields(config, {name: true})}</div>`,
-            buttons: {confirm: {icon: '<i class="fas fa-plus"></i>', label: "Add", callback: html => {
-                values = readFields(html[0] ?? html);
-                if (!values.name) { values = null; ui.notifications.warn("Enter the partner's name."); }
-            }}, cancel: {label: "Cancel"}},
-            default: "confirm",
-            render: html => (html[0] ?? html).querySelector('[data-field="name"]')?.focus(),
-            close: () => resolve(values)}, {classes: ["dialog", "feue-catalog-picker"], width: 380}).render(true);
+        new FiresOfWarDialog({
+            window: { title: "Add Support Partner" },
+            position: { width: 380 },
+            content: `<div class="feue-catalog-picker-body feue-catalog-form">
+                        <p class="feue-catalog-hint">For a partner who is not a character in this world.</p>${supportFields(config, { name: true })}</div>`,
+            buttons: [
+                {
+                    action: "confirm",
+                    default: true,
+                    icon: "fas fa-plus",
+                    label: "Add",
+                    callback: (event, button, dialog) => {
+                        const html = $(dialog.element);
+                        values = readFields(html[0] ?? html);
+                        if (!values.name) {
+                            values = null;
+                            return (ui.notifications.warn("Enter the partner's name."), FiresOfWarDialog.KEEP_OPEN);
+                        }
+                    }
+                },
+                { action: "cancel", label: "Cancel" }
+            ],
+            render: (event, dialog) => {
+                const html = $(dialog.element);
+                return (html[0] ?? html).querySelector('[data-field="name"]')?.focus();
+            },
+            close: () => resolve(values),
+            classes: ["dialog", "feue-catalog-picker"]
+        }).render({force: true});
     }).then(values => values ? addSupport(actor, values) : null);
 }
 

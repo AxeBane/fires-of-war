@@ -1,3 +1,4 @@
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {SYSTEM_ID} from "../map/terrain.mjs";
 import {unavailableUnit, sameAllegiance, tokenCells, footprintDistance, eventFlags, interactEnabled} from "../encounter/event-rules.mjs";
 import {allegianceOf} from "../encounter/encounter-rules.mjs";
@@ -230,10 +231,37 @@ export function openTradeMenu(token, {allyId = null} = {}) {
     const options = actor => `<option value="">Nothing</option>${actor.items.filter(i => ["weapon", "item"].includes(i.type)).map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join("")}`;
     if (!allies.length) return ui.notifications.warn("No adjacent allies to trade with.");
     const label = t => `${t.name}${eventFlags(t).captured ? " (captive)" : eventFlags(t).rescuedBy === source.id ? " (carried)" : ""}`;
-    new Dialog({title: `${source.name} — Trade`, content: `<form><div class="form-group"><label>Ally</label><select id="trade-ally">${allies.map(t => `<option value="${esc(t.id)}">${esc(label(t))}</option>`).join("")}</select></div><div class="form-group"><label>Give</label><select id="trade-give">${options(source.actor)}</select></div><div class="form-group"><label>Receive</label><select id="trade-receive">${options(allies[0].actor)}</select></div></form>`,
-        buttons: {trade: {label: "Trade", callback: async html => {try { await requestUnitCommand(source, "trade", {targetId: html.find("#trade-ally").val(), giveId: html.find("#trade-give").val(), receiveId: html.find("#trade-receive").val()});} catch (error) {ui.notifications.error(error.message);}}}, cancel: {label: "Cancel"}},
-        render: html => html.find("#trade-ally").change(event => html.find("#trade-receive").html(options(allies.find(t => t.id === event.target.value).actor)))
-    }).render(true);
+    new FiresOfWarDialog({
+        window: { title: `${source.name} - Trade` },
+        content: `<div><div class="form-group"><label>Ally</label><select id="trade-ally">${allies.map(t => `<option value="${esc(t.id)}">${esc(label(t))}</option>`).join("")}</select></div><div class="form-group"><label>Give</label><select id="trade-give">${options(source.actor)}</select></div><div class="form-group"><label>Receive</label><select id="trade-receive">${options(allies[0].actor)}</select></div></div>`,
+        buttons: [
+            {
+                action: "trade",
+                label: "Trade",
+                callback: async (event, button, dialog) => {
+                    const html = $(dialog.element);
+                    try {
+                        await requestUnitCommand(source, "trade", {
+                            targetId: html.find("#trade-ally").val(),
+                            giveId: html.find("#trade-give").val(),
+                            receiveId: html.find("#trade-receive").val()
+                        });
+                    } catch (error) {
+                        ui.notifications.error(error.message);
+                    }
+                }
+            },
+            { action: "cancel", label: "Cancel" }
+        ],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
+            return html
+                .find("#trade-ally")
+                .change(event =>
+                    html.find("#trade-receive").html(options(allies.find(t => t.id === event.target.value).actor))
+                );
+        }
+    }).render({force: true});
 }
 export function unitCommands(token) {
     const doc = docOf(token), actor = doc?.actor;
@@ -259,9 +287,23 @@ export function openUnitMenu(token) {
     if (!token?.isOwner || unavailableUnit(token)) return;
     game.firesOfWar.tacticalForecast?.cancelPlanning();
     const commands = unitCommands(token);
-    const dialog = new Dialog({title: `${token.name} — Commands`, content: `<div class="feue-unit-menu">${commands.map(c => `<button type="button" data-unit-command="${c.id}" ${c.reason ? "disabled" : ""} title="${esc(c.reason)}">${c.label}</button>`).join("")}</div>`, buttons: {close: {label: "Close"}},
-        render: html => html.find("[data-unit-command]").click(async event => {try {dialog.close(); await runUnitCommand(token, event.currentTarget.dataset.unitCommand);} catch (error) {ui.notifications.error(error.message);}})});
-    dialog.render(true);
+    const dialog = new FiresOfWarDialog({
+        window: { title: `${token.name} - Commands` },
+        content: `<div class="feue-unit-menu">${commands.map(c => `<button type="button" data-unit-command="${c.id}" ${c.reason ? "disabled" : ""} title="${esc(c.reason)}">${c.label}</button>`).join("")}</div>`,
+        buttons: [{ action: "close", label: "Close" }],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
+            return html.find("[data-unit-command]").click(async event => {
+                try {
+                    dialog.close();
+                    await runUnitCommand(token, event.currentTarget.dataset.unitCommand);
+                } catch (error) {
+                    ui.notifications.error(error.message);
+                }
+            });
+        }
+    });
+    dialog.render({force: true});
 }
 export function registerUnitActions() {
     Hooks.once("ready", () => {

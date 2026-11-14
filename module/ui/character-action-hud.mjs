@@ -1,3 +1,4 @@
+import {FiresOfWarDialog} from "./dialog.mjs";
 import {combatArtAllowsWeaponType, combatArtReason, hasInfiniteUses, formatUses} from "../rules/feue.mjs";
 import {effectiveAttackRange} from "../map/tactical-grid.mjs";
 import {combatStatDisplay} from "./stat-display.mjs";
@@ -227,7 +228,7 @@ export class CharacterActionHud {
                 const button = event.target.closest("[data-item-id]");
                 if (!button) return;
                 event.preventDefault();
-                this.token?.actor.items.get(button.dataset.itemId)?.sheet.render(true);
+                this.token?.actor.items.get(button.dataset.itemId)?.sheet.render({force: true});
             });
             document.body.append(this.element);
             window.addEventListener("resize", this.onResize);
@@ -278,7 +279,7 @@ export class CharacterActionHud {
             await activateCharacterAction(token, button.dataset.itemId, {
                 execute: (action, item, options) => this.execute(token.actor, action, item, options),
                 equipmentAction: button.dataset.equipmentAction,
-                confirmEquip: item => Dialog.confirm({title: `Equip ${item.name}?`, content: `<p>Equip <b>${esc(item.name)}</b>? This replaces the currently equipped ${item.type === "weapon" ? "weapon" : "item"}.</p>`, defaultYes: false}),
+                confirmEquip: item => FiresOfWarDialog.confirm({window: {title: `Equip ${item.name}?`}, content: `<p>Equip <b>${esc(item.name)}</b>? This replaces the currently equipped ${item.type === "weapon" ? "weapon" : "item"}.</p>`}),
                 warn: message => ui.notifications.warn(message),
                 targets: () => Array.from(game.user.targets || []),
                 grid: canvas.grid?.getOffset ? canvas.grid : canvas.grid?.grid,

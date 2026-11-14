@@ -1,6 +1,6 @@
 <form class="feue gba-item {{cssClass}} flexcol" autocomplete="off">
     <header class="sheet-header flexrow">
-        <img class="item-img" src="{{item.img}}" data-edit="img" title="{{item.name}}" alt="{{item.name}}" />
+        <img class="item-img" src="{{item.img}}" data-edit="img" data-action="editImage" title="{{item.name}}" alt="{{item.name}}" />
         <div class="header-fields flexcol">
             <div class="item-kind">{{itemTypeLabel}}</div>
             <h1 class="item-name"><input name="name" type="text" value="{{item.name}}" placeholder="Item Name" aria-label="Item name" /></h1>
@@ -8,21 +8,21 @@
     </header>
 
     <nav class="sheet-tabs tabs" data-group="primary">
-        <a class="item" data-tab="description">Description</a>
-        {{#if (eq item.type "weapon")}}<a class="item" data-tab="weapon">Weapon</a>{{/if}}
-        {{#if (eq item.type "spell")}}<a class="item" data-tab="spell">Spell</a>{{/if}}
-        {{#if (eq item.type "item")}}<a class="item" data-tab="item">Item</a>{{/if}}
-        {{#if (eq item.type "skill")}}<a class="item" data-tab="skill">Skill</a>{{/if}}
-        {{#if (eq item.type "combatArt")}}<a class="item" data-tab="combatArt">Combat Art</a>{{/if}}
-        {{#if (eq item.type "battalion")}}<a class="item" data-tab="battalion">Battalion</a>{{/if}}
-        {{#if (eq item.type "class")}}<a class="item" data-tab="class">Class</a>{{/if}}
-        {{#if (eq item.type "miscBonus")}}<a class="item" data-tab="miscBonus">Misc Bonus</a>{{/if}}
+        <a class="item {{tabs.description.cssClass}}" data-action="tab" data-group="primary" data-tab="description">Description</a>
+        {{#if (eq item.type "weapon")}}<a class="item {{tabs.weapon.cssClass}}" data-action="tab" data-group="primary" data-tab="weapon">Weapon</a>{{/if}}
+        {{#if (eq item.type "spell")}}<a class="item {{tabs.spell.cssClass}}" data-action="tab" data-group="primary" data-tab="spell">Spell</a>{{/if}}
+        {{#if (eq item.type "item")}}<a class="item {{tabs.item.cssClass}}" data-action="tab" data-group="primary" data-tab="item">Item</a>{{/if}}
+        {{#if (eq item.type "skill")}}<a class="item {{tabs.skill.cssClass}}" data-action="tab" data-group="primary" data-tab="skill">Skill</a>{{/if}}
+        {{#if (eq item.type "combatArt")}}<a class="item {{tabs.combatArt.cssClass}}" data-action="tab" data-group="primary" data-tab="combatArt">Combat Art</a>{{/if}}
+        {{#if (eq item.type "battalion")}}<a class="item {{tabs.battalion.cssClass}}" data-action="tab" data-group="primary" data-tab="battalion">Battalion</a>{{/if}}
+        {{#if (eq item.type "class")}}<a class="item {{tabs.class.cssClass}}" data-action="tab" data-group="primary" data-tab="class">Class</a>{{/if}}
+        {{#if (eq item.type "miscBonus")}}<a class="item {{tabs.miscBonus.cssClass}}" data-action="tab" data-group="primary" data-tab="miscBonus">Misc Bonus</a>{{/if}}
     </nav>
 
     <section class="sheet-body">
 
         {{!-- Description Tab --}}
-        <div class="tab description" data-group="primary" data-tab="description">
+        <div class="tab description {{tabs.description.cssClass}}" data-group="primary" data-tab="description">
             <div class="form-group">
                 <label>Description</label>
                 <textarea name="system.description" rows="6" placeholder="Item description...">{{item.system.description}}</textarea>
@@ -115,7 +115,7 @@
 
         {{!-- Weapon Tab --}}
         {{#if (eq item.type "weapon")}}
-        <div class="tab weapon" data-group="primary" data-tab="weapon">
+        <div class="tab weapon {{tabs.weapon.cssClass}}" data-group="primary" data-tab="weapon">
             <div class="form-row">
                 <div class="form-group"><label>Weapon Type</label><select name="system.weaponType">{{#each FEUE.WeaponTypes as |label key|}}<option value="{{key}}" {{#ifEquals ../item.system.weaponType key}} selected{{/ifEquals}}>{{label}}</option>{{/each}}</select></div>
                 <div class="form-group"><label>Weapon Rank</label><select name="system.rank">{{#each FEUE.WEAPON_RANKS as |rd rk|}}{{#unless (eq rk "")}}<option value="{{rk}}" {{#ifEquals ../item.system.rank rk}} selected{{/ifEquals}}>{{rd.label}}</option>{{/unless}}{{/each}}<option value="Prf" {{#ifEquals item.system.rank "Prf"}} selected{{/ifEquals}}>Prf</option></select></div>
@@ -179,7 +179,7 @@
 
         {{!-- Item Tab --}}
         {{#if (eq item.type "item")}}
-        <div class="tab item" data-group="primary" data-tab="item">
+        <div class="tab item {{tabs.item.cssClass}}" data-group="primary" data-tab="item">
             <label>Type</label>
             <select name="system.itemType">
                 <option value="consumable" {{#ifEquals item.system.itemType "consumable"}} selected{{/ifEquals}}>Consumable</option>
@@ -238,7 +238,7 @@
 
         {{!-- Skill Tab --}}
         {{#if (eq item.type "skill")}}
-        <div class="tab skill" data-group="primary" data-tab="skill">
+        <div class="tab skill {{tabs.skill.cssClass}}" data-group="primary" data-tab="skill">
             <div class="form-row">
                 <div class="form-group">
                     <label>Type</label>
@@ -353,7 +353,7 @@
 
         {{!-- Spell Tab --}}
         {{#if (eq item.type "spell")}}
-        <div class="tab spell" data-group="primary" data-tab="spell">
+        <div class="tab spell {{tabs.spell.cssClass}}" data-group="primary" data-tab="spell">
             <div class="form-row">
                 <div class="form-group">
                     <label>School</label>
@@ -393,7 +393,7 @@
 
         {{!-- Combat Art Tab --}}
         {{#if (eq item.type "combatArt")}}
-        <div class="tab combatArt" data-group="primary" data-tab="combatArt">
+        <div class="tab combatArt {{tabs.combatArt.cssClass}}" data-group="primary" data-tab="combatArt">
             <div class="form-row">
                 <div class="form-group">
                     <label>Weapon Restriction</label>
@@ -425,7 +425,7 @@
 
         {{!-- Battalion Tab --}}
         {{#if (eq item.type "battalion")}}
-        <div class="tab battalion" data-group="primary" data-tab="battalion">
+        <div class="tab battalion {{tabs.battalion.cssClass}}" data-group="primary" data-tab="battalion">
             <div class="form-row">
                 <div class="form-group">
                     <label>Battalion Rank</label>
@@ -479,7 +479,7 @@
 
         {{!-- Class Tab --}}
         {{#if (eq item.type "class")}}
-    <div class="tab class feue-class-sheet" data-group="primary" data-tab="class">
+    <div class="tab class feue-class-sheet {{tabs.class.cssClass}}" data-group="primary" data-tab="class">
         <section class="feue-class-block feue-class-overview">
             <label><span>Class type</span>
                 <select name="system.classType">
@@ -550,7 +550,7 @@
         {{/if}}
 
         {{#if (eq item.type "miscBonus")}}
-        <div class="tab miscBonus" data-group="primary" data-tab="miscBonus">
+        <div class="tab miscBonus {{tabs.miscBonus.cssClass}}" data-group="primary" data-tab="miscBonus">
             <p>Use the Description tab to configure all misc bonus values.</p>
         </div>
         {{/if}}

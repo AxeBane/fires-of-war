@@ -43,7 +43,8 @@
     "styles/combat-presentation.css",
     "styles/tactical-encounter.css",
     "styles/class-ui.css",
-    "styles/combat-ai.css"
+    "styles/combat-ai.css",
+    "styles/application.css"
   ],
   "packs": [
     {

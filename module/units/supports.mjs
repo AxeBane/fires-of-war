@@ -59,7 +59,7 @@ export function refreshSupports(scene = globalThis.canvas?.scene) {
     for (const token of scene?.tokens ?? []) if (hasSupports(token.actor)) actors.add(token.actor);
     for (const actor of actors) {
         actor.reset();
-        if (actor.sheet?.rendered) actor.sheet.render(false);
+        if (actor.sheet?.rendered) actor.sheet.render();
     }
 }
 

@@ -1,0 +1,95 @@
+.application.feue,
+.application.feue-dialog,
+.application.feue-indicator-config {
+    --header-height: 30px;
+    position: fixed;
+    max-height: 100%;
+}
+
+.application.feue .window-header .window-title,
+.application.feue-dialog .window-header .window-title,
+.application.feue-indicator-config .window-header .window-title {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    color: inherit;
+}
+
+.application.feue .window-header button.header-control,
+.application.feue-dialog .window-header button.header-control,
+.application.feue-indicator-config .window-header button.header-control {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    width: auto;
+    padding: 0 0 0 8px;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    color: inherit;
+    white-space: nowrap;
+}
+
+.application.feue .window-header button.header-control::after,
+.application.feue-dialog .window-header button.header-control::after,
+.application.feue-indicator-config .window-header button.header-control::after {
+    font-family: var(--font-primary);
+    font-size: 14px;
+    font-weight: normal;
+}
+
+.application.feue .window-header button.header-control:is([data-action="configureSheet"], [data-action="configureToken"], [data-action="configurePrototypeToken"])::after,
+.application.feue-dialog .window-header button.header-control:is([data-action="configureSheet"], [data-action="configureToken"], [data-action="configurePrototypeToken"])::after,
+.application.feue-indicator-config .window-header button.header-control:is([data-action="configureSheet"], [data-action="configureToken"], [data-action="configurePrototypeToken"])::after {
+    content: attr(aria-label);
+    margin-left: 4px;
+}
+
+.application.feue .window-header button.header-control[data-action="close"]::after,
+.application.feue-dialog .window-header button.header-control[data-action="close"]::after,
+.application.feue-indicator-config .window-header button.header-control[data-action="close"]::after {
+    content: "Close";
+    margin-left: 4px;
+}
+
+.application.feue .window-header .window-title {
+    font-size: 13px;
+}
+
+.application.feue .window-header button.header-control::after {
+    font-family: var(--feue-font-body);
+}
+
+.application.feue-gba-dialog .window-header .window-title {
+    font: 18px var(--feue-font-body);
+    color: var(--gba-gold);
+}
+
+.application.feue-dialog .dialog-form {
+    display: contents;
+}
+
+.feue-dialog :where(.dialog-buttons button) {
+    background: #26355f;
+    color: #fff0b0;
+    border: 1px solid #f2e8bc;
+}
+
+.feue-dialog :where(.dialog-buttons button:hover:not(:disabled)) {
+    background: #3a5291;
+}
+
+.feue-dialog :where(.dialog-buttons button:focus-visible) {
+    outline: 2px solid #fff0b0;
+    outline-offset: 2px;
+}
+
+.application.feue.sheet.item {
+    min-width: 460px;
+}
+
+:where(.feue-dialog) .dialog-form > * {
+    flex: 1;
+}

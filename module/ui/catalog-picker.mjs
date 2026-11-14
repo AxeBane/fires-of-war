@@ -1,6 +1,7 @@
 /** The tabbed, searchable "choose an existing one" dialog behind the character sheet's Add buttons (classes, weapons, items,
  * skills, spells, combat arts, battalions and support partners).
  * Styles live in styles/class-ui.css (linked by registerClassUI). */
+import {FiresOfWarDialog} from "./dialog.mjs";
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"}[c]));
 
 /**
@@ -38,23 +39,42 @@ export function chooseFromCatalog({title, noun, plural = `${noun}s`, tabs, entri
         <button type="button" class="feue-catalog-blank"><i class="fas fa-plus"></i> ${esc(blankLabel)}</button></div>`;
     return new Promise(resolve => {
         let result = null;
-        const dialog = new Dialog({title, content,
-            buttons: {confirm: {icon: '<i class="fas fa-check"></i>', label: "Confirm", callback: html => {
-                const root = html[0] ?? html;
-                result = root.querySelector('input[name="feue-catalog-choice"]:checked')?.value ?? null;
-                if (!result) return ui.notifications.warn(`Choose a ${noun} first.`);
-                onConfirm?.(root);
-            }}, cancel: {label: "Cancel"}},
-            default: "confirm",
-            render: html => {
+        const dialog = new FiresOfWarDialog({
+            window: { title, resizable: true },
+            position: { width, height },
+            content,
+            buttons: [
+                {
+                    action: "confirm",
+                    default: true,
+                    icon: "fas fa-check",
+                    label: "Confirm",
+                    callback: (event, button, dialog) => {
+                        const html = $(dialog.element);
+                        const root = html[0] ?? html;
+                        result = root.querySelector('input[name="feue-catalog-choice"]:checked')?.value ?? null;
+                        if (!result) return (ui.notifications.warn(`Choose a ${noun} first.`), FiresOfWarDialog.KEEP_OPEN);
+                        onConfirm?.(root);
+                    }
+                },
+                { action: "cancel", label: "Cancel" }
+            ],
+            render: (event, dialog) => {
+                const html = $(dialog.element);
                 const root = html[0] ?? html;
                 let current = start;
                 const show = tab => {
                     current = tab;
-                    root.querySelectorAll(".feue-catalog-tabs [data-tab]").forEach(button => button.setAttribute("aria-selected", String(button.dataset.tab === tab)));
-                    root.querySelectorAll(".feue-catalog-panel").forEach(panel => { panel.hidden = panel.dataset.tab !== tab; });
+                    root.querySelectorAll(".feue-catalog-tabs [data-tab]").forEach(button =>
+                        button.setAttribute("aria-selected", String(button.dataset.tab === tab))
+                    );
+                    root.querySelectorAll(".feue-catalog-panel").forEach(panel => {
+                        panel.hidden = panel.dataset.tab !== tab;
+                    });
                 };
-                root.querySelectorAll(".feue-catalog-tabs [data-tab]").forEach(button => button.addEventListener("click", () => show(button.dataset.tab)));
+                root.querySelectorAll(".feue-catalog-tabs [data-tab]").forEach(button =>
+                    button.addEventListener("click", () => show(button.dataset.tab))
+                );
                 root.querySelector(".feue-catalog-search").addEventListener("input", event => {
                     const query = event.target.value.trim().toLowerCase();
                     const counts = {};
@@ -79,7 +99,9 @@ export function chooseFromCatalog({title, noun, plural = `${noun}s`, tabs, entri
                             }
                         }
                         counts[panel.dataset.tab] = shown;
-                        const count = root.querySelector(`.feue-catalog-tabs [data-tab="${CSS.escape(panel.dataset.tab)}"] span`);
+                        const count = root.querySelector(
+                            `.feue-catalog-tabs [data-tab="${CSS.escape(panel.dataset.tab)}"] span`
+                        );
                         if (count) count.textContent = String(shown);
                     }
                     // Follow the search to a tab that has matches, so a name typed on the wrong tab still turns up.
@@ -88,13 +110,20 @@ export function chooseFromCatalog({title, noun, plural = `${noun}s`, tabs, entri
                         if (next) show(next);
                     }
                 });
-                root.querySelectorAll(".feue-catalog-option:not(.locked)").forEach(option => option.addEventListener("dblclick", () => {
-                    option.querySelector("input").checked = true;
-                    root.closest(".app")?.querySelector('[data-button="confirm"]')?.click();
-                }));
-                root.querySelector(".feue-catalog-blank").addEventListener("click", () => { result = "blank"; dialog.close(); });
+                root.querySelectorAll(".feue-catalog-option:not(.locked)").forEach(option =>
+                    option.addEventListener("dblclick", () => {
+                        option.querySelector("input").checked = true;
+                        root.closest(".app")?.querySelector('[data-button="confirm"]')?.click();
+                    })
+                );
+                root.querySelector(".feue-catalog-blank").addEventListener("click", () => {
+                    result = "blank";
+                    dialog.close();
+                });
             },
-            close: () => resolve(result)}, {classes: ["dialog", "feue-catalog-picker"], width, height, resizable: true});
-        dialog.render(true);
+            close: () => resolve(result),
+            classes: ["dialog", "feue-catalog-picker"]
+        });
+        dialog.render({force: true});
     });
 }

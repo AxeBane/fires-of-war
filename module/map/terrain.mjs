@@ -127,7 +127,7 @@ export function refreshTerrainStats(scene = globalThis.canvas?.scene, {ignoreSce
     for (const token of scene?.tokens ?? []) if (token.actor) actors.add(token.actor);
     for (const actor of actors) {
         applyTerrainStats(actor, {ignoreScene});
-        if (actor.sheet?.rendered) actor.sheet.render(false);
+        if (actor.sheet?.rendered) actor.sheet.render();
     }
 }
 

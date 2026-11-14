@@ -1,6 +1,6 @@
+import {FiresOfWarDialog} from "../ui/dialog.mjs";
 import {INVENTORY_LIMIT, inventoryItem, inventoryUsage, baseActorId, owns, partyInCombat, convoyAccessReason, requestConvoy, isConvoyUnit} from "./convoy.mjs";
 import {esc, rootElement} from "../map/terrain-ui.mjs";
-import {createEncounterDialogClass} from "../encounter/tactical-encounter.mjs";
 import {hasInfiniteUses, formatUses} from "../rules/feue.mjs";
 
 export function convoyUnits(party) {
@@ -61,25 +61,42 @@ export function openConvoyInteraction({source, party, carrier, inCombat, submit}
         if (confirm) confirm.disabled = !deposit.size && !withdraw.size;
         if (dialog.rendered) dialog.setPosition({height: "auto"});
     };
-    const dialog = new Dialog({title: `${source.name} — Convoy`,
+    const dialog = new FiresOfWarDialog({
+        window: { title: `${source.name} - Convoy` },
+        position: { width: 560 },
         content: `<div class="feue-convoy-interact"><p class="hint">${esc(party.name)} Convoy${via}. Store or take any number of items, then confirm${inCombat ? `; confirming uses ${esc(source.name)}'s Major Action` : ""}. Equipment is unequipped when it moves.</p><div class="feue-convoy-columns">${lists()}</div></div>`,
-        buttons: {confirm: {icon: '<i class="fas fa-check"></i>', label: "Confirm transfers", callback: () => {
-            if (!deposit.size && !withdraw.size) return;
-            void submit({deposit: [...deposit], withdraw: [...withdraw]}).catch(error => ui.notifications.warn(error.message));
-        }}, cancel: {label: "Cancel"}},
-        default: "confirm",
-        render: html => {
+        buttons: [
+            {
+                action: "confirm",
+                default: true,
+                icon: "fas fa-check",
+                label: "Confirm transfers",
+                callback: () => {
+                    if (!deposit.size && !withdraw.size) return;
+                    void submit({ deposit: [...deposit], withdraw: [...withdraw] }).catch(error =>
+                        ui.notifications.warn(error.message)
+                    );
+                }
+            },
+            { action: "cancel", label: "Cancel" }
+        ],
+        render: (event, dialog) => {
+            const html = $(dialog.element);
             root = rootElement(html).querySelector(".feue-convoy-interact") ?? rootElement(html);
             root.addEventListener("click", event => {
                 const button = event.target.closest("[data-move]");
                 if (!button || button.disabled) return;
-                const staged = button.dataset.move === "deposit" ? deposit : withdraw, id = button.dataset.item;
-                if (staged.has(id)) staged.delete(id); else staged.add(id);
+                const staged = button.dataset.move === "deposit" ? deposit : withdraw,
+                    id = button.dataset.item;
+                if (staged.has(id)) staged.delete(id);
+                else staged.add(id);
                 refresh();
             });
             refresh();
-        }}, {classes: ["dialog", "feue-convoy-dialog"], width: 560});
-    dialog.render(true);
+        },
+        classes: ["dialog", "feue-convoy-dialog"]
+    });
+    dialog.render({force: true});
 }
 
 async function perform(request) {
@@ -95,17 +112,28 @@ export async function dropConvoyItem(party, item, selectedUuid) {
 }
 
 function itemChoiceDialog(party, unitUuid, action) {
-    const TransferDialog = createEncounterDialogClass(Dialog);
     const unit = convoyUnits(party).find(choice => choice.uuid === unitUuid)?.actor;
     const entries = action === "deposit" ? Array.from(unit?.items ?? []).filter(inventoryItem) : Array.from(game.items ?? []).filter(inventoryItem);
     if (!entries.length) return ui.notifications.warn(action === "deposit" ? "This unit has no inventory items to deposit." : "No world items available. Drag an item from a compendium onto Convoy.");
-    new TransferDialog({title: action === "deposit" ? `Deposit — ${unit.name}` : `Add to ${party.name} Convoy`,
+    new FiresOfWarDialog({
+        window: { title: action === "deposit" ? `Deposit - ${unit.name}` : `Add to ${party.name} Convoy` },
+        position: { width: 400 },
         content: `<p>${action === "deposit" ? "Moves the selected item into Convoy, preserving its quantity and uses. Equipped items are unequipped." : "Adds a copy of a world item. Compendium items can also be dragged onto Convoy."}</p><select class="feue-convoy-item-choice">${entries.map(item => `<option value="${esc(item.id)}">${esc(item.name)}${item.system.equipped ? " (equipped)" : ""}${hasInfiniteUses(item.system.uses) || Number(item.system.uses?.max) > 0 ? ` · ${formatUses(item.system.uses)} uses` : ""}</option>`).join("")}</select>`,
-        buttons: {transfer: {label: action === "deposit" ? "Deposit" : "Add", callback: async html => {
-            const id = rootElement(html).querySelector(".feue-convoy-item-choice").value;
-            const item = entries.find(item => item.id === id);
-            await perform({action, partyId: party.id, unitUuid, itemId: id, itemUuid: item?.uuid});
-        }}, cancel: {label: "Cancel"}}}, {classes: ["dialog", "feue-gba-dialog"], width: 400}).render(true);
+        buttons: [
+            {
+                action: "transfer",
+                label: action === "deposit" ? "Deposit" : "Add",
+                callback: async (event, button, dialog) => {
+                    const html = $(dialog.element);
+                    const id = rootElement(html).querySelector(".feue-convoy-item-choice").value;
+                    const item = entries.find(item => item.id === id);
+                    await perform({ action, partyId: party.id, unitUuid, itemId: id, itemUuid: item?.uuid });
+                }
+            },
+            { action: "cancel", label: "Cancel" }
+        ],
+        classes: ["dialog", "feue-gba-dialog"]
+    }).render({force: true});
 }
 
 /** Bind independently of Party ownership; transfers still require ownership of the selected member. */
@@ -114,17 +142,17 @@ export function bindConvoySheet(sheet, html) {
     if (!convoy) return;
     const selected = () => convoy.querySelector(".party-convoy-unit")?.value || "";
     const safely = operation => void operation().catch(error => ui.notifications.warn(error.message));
-    convoy.querySelector(".party-convoy-unit")?.addEventListener("change", () => { sheet._convoyUnitUuid = selected(); sheet.render(false); });
+    convoy.querySelector(".party-convoy-unit")?.addEventListener("change", () => { sheet._convoyUnitUuid = selected(); sheet.render(); });
     convoy.querySelector(".party-convoy-deposit")?.addEventListener("click", () => itemChoiceDialog(party, selected(), "deposit"));
     convoy.querySelector(".party-convoy-add")?.addEventListener("click", () => itemChoiceDialog(party, selected(), "add"));
     convoy.querySelectorAll("[data-convoy-item]").forEach(row => {
         const id = row.dataset.convoyItem;
         row.querySelector(".party-convoy-withdraw")?.addEventListener("click", () => safely(() => perform({action: "withdraw", partyId: party.id, unitUuid: selected(), itemId: id})));
         row.querySelector(".party-convoy-discard")?.addEventListener("click", () => {
-            Dialog.confirm({title: "Discard Convoy Item", content: `<p>Discard <b>${esc(party.items.get(id)?.name)}</b> from Convoy?</p>`,
-                yes: () => safely(() => perform({action: "discard", partyId: party.id, unitUuid: selected(), itemId: id}))});
+            FiresOfWarDialog.confirm({window: {title: "Discard Convoy Item"}, no: {default: false}, content: `<p>Discard <b>${esc(party.items.get(id)?.name)}</b> from Convoy?</p>`,
+                yes: {default: true, callback: () => safely(() => perform({action: "discard", partyId: party.id, unitUuid: selected(), itemId: id}))}});
         });
-        row.querySelector(".party-convoy-details")?.addEventListener("click", () => party.items.get(id)?.sheet.render(true));
+        row.querySelector(".party-convoy-details")?.addEventListener("click", () => party.items.get(id)?.sheet.render({force: true}));
         row.draggable = true;
         row.addEventListener("dragstart", event => {
             const item = party.items.get(id);
