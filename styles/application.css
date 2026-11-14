@@ -71,19 +71,27 @@
     display: contents;
 }
 
-.feue-dialog :where(.dialog-buttons button) {
+:where(.feue-dialog .dialog-form button) {
     background: #26355f;
     color: #fff0b0;
     border: 1px solid #f2e8bc;
 }
 
-.feue-dialog :where(.dialog-buttons button:hover:not(:disabled)) {
+:where(.feue-dialog .dialog-form button:hover:not(:disabled)) {
     background: #3a5291;
 }
 
-.feue-dialog :where(.dialog-buttons button:focus-visible) {
+:where(.feue-dialog .dialog-form button:focus-visible) {
     outline: 2px solid #fff0b0;
     outline-offset: 2px;
+}
+
+:where(.feue-dialog .dialog-form button:disabled) {
+    background: #2d3346;
+    color: #c6cad5;
+    border-color: #7d879f;
+    opacity: 1;
+    cursor: not-allowed;
 }
 
 .application.feue.sheet.item {
