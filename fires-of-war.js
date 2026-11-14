@@ -1382,6 +1382,8 @@ class FiresOfWarActor extends Actor {
 // ====================================================================
 class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
     async _updateObject(event, formData) {
+        const name = event?.type === "change" ? event.currentTarget?.name : null;
+        if (name && name in formData) formData = {[name]: formData[name]};
         // Current Movement is displayed after Rescue. Preserve the raw value when
         // submitting another field, and convert intentional edits back to base units.
         const key = "system.movement.current";
@@ -1394,10 +1396,16 @@ class FiresOfWarCharacterSheet extends foundry.appv1.sheets.ActorSheet {
         if (stonesMax in formData) {
             const max = Math.min(5, Math.max(0, Math.trunc(Number(formData[stonesMax]) || 0))), before = revivalState(this.actor);
             formData[stonesMax] = max;
+            if (max !== before.max && !(stonesValue in formData)) formData[stonesValue] = before.value;
             if (max !== before.max && Number(formData[stonesValue] ?? before.value) === before.value && before.value === before.max) formData[stonesValue] = max;
             if (stonesValue in formData) formData[stonesValue] = Math.min(max, Math.max(0, Math.trunc(Number(formData[stonesValue]) || 0)));
         }
         return super._updateObject(event, formData);
+    }
+
+    _onChangeInput(event) {
+        if (!event.currentTarget?.name) return;
+        return super._onChangeInput(event);
     }
 
     static get defaultOptions() {
@@ -3701,17 +3709,19 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
             update[el.name] = value;
         }
 
-        // Migrate legacy array/string shape of weapon properties before nested writes.
-        // Preserve any prior free-form text into system.propertiesNotes.
+        // Migrate legacy properties before nested writes.
+        // Preserve any prior free-form text in system.propertiesNotes.
         if (this.item.type === "weapon" && el.name.startsWith("system.properties.")) {
             const raw = this.item._source?.system?.properties;
             if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-                const migration = { "system.properties": normalizeWeaponProperties(raw) };
+                const properties = normalizeWeaponProperties(raw);
+                foundry.utils.setProperty(properties, el.name.slice("system.properties.".length), value);
+                delete update[el.name];
+                update["system.properties"] = properties;
                 const legacyText = typeof raw === "string" ? raw : (Array.isArray(raw) ? raw.filter(v => typeof v === "string").join(", ") : "");
                 if (legacyText && !this.item._source?.system?.propertiesNotes) {
-                    migration["system.propertiesNotes"] = legacyText;
+                    update["system.propertiesNotes"] = legacyText;
                 }
-                await this.item.update(migration);
             }
         }
 
@@ -4048,6 +4058,11 @@ class FiresOfWarItemSheet extends foundry.appv1.sheets.ItemSheet {
 // 4b. PARTY SHEET
 // ====================================================================
 class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
+    async _updateObject(event, formData) {
+        const name = event?.type === "change" ? event.currentTarget?.name : null;
+        return super._updateObject(event, name && name in formData ? {[name]: formData[name]} : formData);
+    }
+
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             classes: ["feue", "sheet", "actor", "party"],
@@ -4094,7 +4109,7 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
     _canDragDrop(selector) { return super._canDragDrop(selector) || convoyUnits(this.actor).length > 0; }
 
     _onChangeInput(event) {
-        if (!event.target.name && event.target.closest(".party-convoy")) return;
+        if (!event.currentTarget?.name) return;
         return super._onChangeInput(event);
     }
 
@@ -4302,6 +4317,16 @@ class FiresOfWarPartySheet extends foundry.appv1.sheets.ActorSheet {
 // 4c. SHOP SHEET
 // ====================================================================
 class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
+    async _updateObject(event, formData) {
+        const name = event?.type === "change" ? event.currentTarget?.name : null;
+        return super._updateObject(event, name && name in formData ? {[name]: formData[name]} : formData);
+    }
+
+    _onChangeInput(event) {
+        if (!event.currentTarget?.name) return;
+        return super._onChangeInput(event);
+    }
+
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             classes: ["feue", "sheet", "actor", "shop"],
@@ -4364,10 +4389,12 @@ class FiresOfWarShopSheet extends foundry.appv1.sheets.ActorSheet {
         });
 
         html.find(".shop-buy-mult").change(async ev => {
-            await this.actor.update({ "system.buyMultiplier": Number(ev.currentTarget.value) || 1 });
+            const value = ev.currentTarget.value === "" ? 1 : Number(ev.currentTarget.value);
+            await this.actor.update({ "system.buyMultiplier": Number.isFinite(value) ? Math.max(0, value) : 1 });
         });
         html.find(".shop-sell-mult").change(async ev => {
-            await this.actor.update({ "system.sellMultiplier": Number(ev.currentTarget.value) || 0.5 });
+            const value = ev.currentTarget.value === "" ? 0.5 : Number(ev.currentTarget.value);
+            await this.actor.update({ "system.sellMultiplier": Number.isFinite(value) ? Math.max(0, value) : 0.5 });
         });
 
         html.find(".shop-stock-quantity").change(async ev => {

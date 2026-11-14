@@ -11,6 +11,34 @@ const stats = (move = false) => new fields.SchemaField(Object.fromEntries([...ST
 
 class SystemValueField extends fields.AnyField {
     initialize(value) { return foundry.utils.deepClone(value); }
+
+    _updateDiff(key, value, options, state) {
+        if (foundry.utils.isPlainObject(value)) return fields.ObjectField.prototype._updateDiff.call(this, key, value, options, state);
+        return super._updateDiff(key, value, options, state);
+    }
+}
+
+const legacyWeaponProperties = value => typeof value === "string" || Array.isArray(value);
+
+// Keep legacy text/arrays available to the sheet migration while merging object updates.
+class WeaponPropertiesField extends fields.ObjectField {
+    clean(value, options, state) {
+        return legacyWeaponProperties(value) ? value : super.clean(value, options, state);
+    }
+
+    _validateType(value, options) {
+        if (!legacyWeaponProperties(value)) return super._validateType(value, options);
+    }
+
+    _updateDiff(key, value, options, state) {
+        if (legacyWeaponProperties(value)) return fields.DataField.prototype._updateDiff.call(this, key, value, options, state);
+        return super._updateDiff(key, value, options, state);
+    }
+
+    _updateCommit(source, key, value, diff, options) {
+        if (legacyWeaponProperties(source[key]) || legacyWeaponProperties(value)) source[key] = value;
+        else super._updateCommit(source, key, value, diff, options);
+    }
 }
 
 const array = (initial = []) => new fields.ArrayField(new SystemValueField(), {initial: () => foundry.utils.deepClone(initial)});
@@ -40,7 +68,8 @@ class CharacterData extends foundry.abstract.TypeDataModel {
             activeSupport: string(),
             affinity: string(),
             weaponExp: number(),
-            fatePoints: resource(),
+            fatePoints: new fields.SchemaField({value: number(), max: number(),
+                autoNegate: new fields.BooleanField({nullable: true, initial: null}), rerollSkills: boolean()}),
             statusEffects: array(),
             holyBlood: array(),
             crests: array(),
@@ -108,7 +137,7 @@ class WeaponData extends PhysicalItemData {
             ...super.defineSchema(),
             equipped: boolean(), weaponType: string("sword"), might: number(5), hit: number(90), crit: number(),
             range: string("1"), rank: string("E"), prfProficient: boolean(), uses: uses(45, 45),
-            properties: new SystemValueField({required: true, initial: () => ({
+            properties: new WeaponPropertiesField({required: true, initial: () => ({
                 illegal: false, legendary: false, slayer: {enabled: false, all: false, types: {}},
                 cursed: false, shade: false, deadly: false, magical: false, unwieldy: false, slow: false, mechanical: false,
                 abuse: false, absorb: false, puncture: false, piercing: false, brave: false, poison: false, reverse: false,
